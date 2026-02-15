@@ -435,6 +435,42 @@ async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
   return null;
 }
 
+function findTopicTreeFile(directoryFiles) {
+  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
+  const files = directoryFiles || [];
+  const byLower = new Map(files.map((f) => [String(f.name || "").toLowerCase(), f]));
+  for (const candidate of candidates) {
+    const match = byLower.get(candidate.toLowerCase());
+    if (match) return match;
+  }
+  return files.find((file) => /topic[-_]?tree.*\.json$/i.test(String(file?.name || ""))) || null;
+}
+
+async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
+  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
+  for (const candidate of candidates) {
+    try {
+      const handle = await directoryHandle.getFileHandle(candidate);
+      const file = await handle.getFile();
+      return file;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  try {
+    for await (const handle of directoryHandle.values()) {
+      if (handle.kind === "file" && /topic[-_]?tree.*\.json$/i.test(handle.name)) {
+        return await handle.getFile();
+      }
+    }
+  } catch {
+    // browser might not support iteration
+  }
+
+  return null;
+}
+
 function replaceAcrossQuestion(question, searchText, replaceText) {
   const apply = (value) => String(value || "").split(searchText).join(replaceText);
   let touched = false;
