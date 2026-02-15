@@ -35,12 +35,13 @@
   <aside class="card">
     <h2>1) Dateien laden</h2>
     <div class="small">Lade eine oder mehrere <code>export.json</code>-Dateien per Browserdialog.</div>
+    <label for="jsonFileInput">JSON-Datei(en)</label>
+    <input id="jsonFileInput" type="file" accept="application/json,.json" multiple>
+    <label for="zipFileInput">Bilder-ZIP (optional)</label>
+    <input id="zipFileInput" type="file" accept="application/zip,.zip">
     <div class="row2" style="margin-top:10px;">
-      <button class="btn primary" id="pickJsonBtn" type="button">JSON-Datei(en) wählen</button>
-      <button class="btn" id="pickZipBtn" type="button">Bilder-ZIP wählen (optional)</button>
+      <button class="btn primary" id="loadFilesBtn" type="button">Dateien laden</button>
     </div>
-    <input id="jsonFileInput" type="file" accept="application/json,.json" multiple hidden>
-    <input id="zipFileInput" type="file" accept="application/zip,.zip" hidden>
     <div class="small" id="loadedFileHint" style="margin-top:8px;">Noch keine Datei ausgewählt.</div>
 
     <hr class="sep">

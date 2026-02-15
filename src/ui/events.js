@@ -114,22 +114,31 @@ async function loadDatasetFromFiles(jsonFiles, zipFile = null) {
 }
 
 export function wireUiEvents() {
-  let selectedJsonFiles = [];
-  let selectedZipFile = null;
+  const jsonInput = $("jsonFileInput");
+  const zipInput = $("zipFileInput");
 
-  $("pickJsonBtn").addEventListener("click", () => $("jsonFileInput").click());
-  $("pickZipBtn").addEventListener("click", () => $("zipFileInput").click());
+  const updateSelectedFileHint = () => {
+    const jsonFiles = Array.from(jsonInput.files || []);
+    const zipFile = (zipInput.files || [])[0] || null;
+    const fileHint = $("loadedFileHint");
+    if (!fileHint) return;
 
-  $("jsonFileInput").addEventListener("change", async (e) => {
-    selectedJsonFiles = Array.from(e.target.files || []);
-    await loadDatasetFromFiles(selectedJsonFiles, selectedZipFile);
-  });
-
-  $("zipFileInput").addEventListener("change", async (e) => {
-    selectedZipFile = (e.target.files || [])[0] || null;
-    if (selectedJsonFiles.length) {
-      await loadDatasetFromFiles(selectedJsonFiles, selectedZipFile);
+    if (!jsonFiles.length) {
+      fileHint.textContent = "Noch keine Datei ausgewählt.";
+      return;
     }
+
+    const zipHint = zipFile ? ` + ${zipFile.name}` : "";
+    fileHint.textContent = `Ausgewählt: ${jsonFiles.map((f) => f.name).join(", ")}${zipHint}`;
+  };
+
+  jsonInput.addEventListener("change", updateSelectedFileHint);
+  zipInput.addEventListener("change", updateSelectedFileHint);
+
+  $("loadFilesBtn").addEventListener("click", async () => {
+    const jsonFiles = Array.from(jsonInput.files || []);
+    const zipFile = (zipInput.files || [])[0] || null;
+    await loadDatasetFromFiles(jsonFiles, zipFile);
   });
 
   $("startSearchBtn").addEventListener("click", async () => {
