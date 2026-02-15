@@ -43,6 +43,10 @@ function baseFilenameFromUrl(url) {
   return seg || "export.json";
 }
 
+function hasFileSystemAccessApi() {
+  return typeof window.showDirectoryPicker === "function";
+}
+
 function downloadJson(payload, filename) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   downloadBlob(blob, filename);
@@ -59,6 +63,12 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+async function writeBlobToHandle(fileHandle, blob) {
+  const writable = await fileHandle.createWritable();
+  await writable.write(blob);
+  await writable.close();
+}
+
 function syncAllQuestions() {
   for (const q of state.questionsAll) syncQuestionToSource(q);
 }
@@ -66,13 +76,33 @@ function syncAllQuestions() {
 async function saveAsOriginalDownload() {
   syncAllQuestions();
   const exports = buildDatasetExports();
+  const zipBlob = await buildImagesZipBlob();
+
+  if (state.activeDataset?.directoryHandle && state.activeDataset?.exportJsonHandle) {
+    const payload = exports[0]?.payload || { questions: [] };
+    const jsonBlob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    await writeBlobToHandle(state.activeDataset.exportJsonHandle, jsonBlob);
+
+    let zipHandle = state.activeDataset.zipHandle;
+    if (!zipHandle) {
+      zipHandle = await state.activeDataset.directoryHandle.getFileHandle("images.zip", { create: true });
+      state.activeDataset.zipHandle = zipHandle;
+      state.activeDataset.zipFileName = "images.zip";
+    }
+    await writeBlobToHandle(zipHandle, zipBlob);
+
+    state.dirty = false;
+    await renderAll();
+    toast("Datensatz im gewählten Ordner aktualisiert.");
+    return;
+  }
+
   exports.forEach((entry) => {
     downloadJson(entry.payload, baseFilenameFromUrl(entry.url));
   });
-  const zipBlob = await buildImagesZipBlob();
   downloadBlob(zipBlob, state.activeDataset?.zipFileName || "images.zip");
   state.dirty = false;
-  renderAll();
+  await renderAll();
   toast("JSON und images.zip mit Original-Dateinamen heruntergeladen.");
 }
 
@@ -80,13 +110,25 @@ async function saveAsCopyDownload() {
   syncAllQuestions();
   const suffix = ($("copySuffix")?.value || "bearbeitet").trim() || "bearbeitet";
   const exports = buildDatasetExports();
-  exports.forEach((entry) => {
-    const base = baseFilenameFromUrl(entry.url).replace(/\.json$/i, "");
-    downloadJson(entry.payload, `${base}_${suffix}.json`);
-  });
+  const base = baseFilenameFromUrl(exports[0]?.url || "export.json").replace(/\.json$/i, "");
   const zipBase = (state.activeDataset?.zipFileName || "images.zip").replace(/\.zip$/i, "");
+  const jsonName = `${base}_${suffix}.json`;
+  const zipName = `${zipBase}_${suffix}.zip`;
   const zipBlob = await buildImagesZipBlob();
-  downloadBlob(zipBlob, `${zipBase}_${suffix}.zip`);
+
+  if (state.activeDataset?.directoryHandle) {
+    const payload = exports[0]?.payload || { questions: [] };
+    const jsonBlob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const jsonHandle = await state.activeDataset.directoryHandle.getFileHandle(jsonName, { create: true });
+    const zipHandle = await state.activeDataset.directoryHandle.getFileHandle(zipName, { create: true });
+    await writeBlobToHandle(jsonHandle, jsonBlob);
+    await writeBlobToHandle(zipHandle, zipBlob);
+    toast(`Kopie im Ordner gespeichert: ${jsonName} + ${zipName}`);
+    return;
+  }
+
+  downloadJson(exports[0]?.payload || { questions: [] }, jsonName);
+  downloadBlob(zipBlob, zipName);
   toast("Bearbeitete JSON + images.zip als Kopie heruntergeladen.");
 }
 
@@ -94,6 +136,32 @@ function getFolderNameFromEntry(file) {
   const rel = String(file?.webkitRelativePath || "");
   const seg = rel.split("/").filter(Boolean);
   return seg.length > 1 ? seg[0] : "Ordner";
+}
+
+async function loadFromResolvedFiles({ exportJsonFile, zipFile, folderName, handles = null }) {
+  clearLocalImageObjectUrls();
+  await loadJsonFiles([exportJsonFile]);
+  await loadZipFile(zipFile);
+
+  state.activeDataset = {
+    id: "upload",
+    label: folderName,
+    zipFileName: zipFile?.name || "images.zip",
+    directoryHandle: handles?.directoryHandle || null,
+    exportJsonHandle: handles?.exportJsonHandle || null,
+    zipHandle: handles?.zipHandle || null,
+  };
+  resetEditorState();
+  updateExamLists();
+  resetSearchConfig();
+  await renderAll();
+
+  const fileHint = $("loadedFileHint");
+  if (fileHint) {
+    const mode = handles ? "(Live)" : "";
+    const zipHint = zipFile ? ` + ${zipFile.name}` : "";
+    fileHint.textContent = `Geladen ${mode} aus Ordner „${folderName}“: ${exportJsonFile.name}${zipHint}`.trim();
+  }
 }
 
 async function loadDatasetFromDirectoryFiles(directoryFiles) {
@@ -111,36 +179,59 @@ async function loadDatasetFromDirectoryFiles(directoryFiles) {
   const zipFile = directoryFiles.find((file) => file.name.toLowerCase() === "images.zip") || null;
 
   try {
-    clearLocalImageObjectUrls();
-    await loadJsonFiles([exportJson]);
-    await loadZipFile(zipFile);
-
     const folderName = getFolderNameFromEntry(exportJson);
-
-    state.activeDataset = {
-      id: "upload",
-      label: folderName,
-      zipFileName: zipFile?.name || "images.zip",
-    };
-    resetEditorState();
-    updateExamLists();
-    resetSearchConfig();
-    await renderAll();
-
-    const fileHint = $("loadedFileHint");
-    if (fileHint) {
-      const zipHint = zipFile ? ` + ${zipFile.name}` : "";
-      fileHint.textContent = `Geladen aus Ordner „${folderName}“: ${exportJson.name}${zipHint}`;
-    }
-
+    await loadFromResolvedFiles({ exportJsonFile: exportJson, zipFile, folderName });
     toast("Ordner geladen.");
   } catch (e) {
     alert("Fehler beim Laden des Ordners: " + e);
   }
 }
 
+async function pickAndLoadDirectoryLive() {
+  if (!hasFileSystemAccessApi()) {
+    alert("Live-Bearbeitung ist in diesem Browser nicht verfügbar. Bitte den normalen Ordner-Import nutzen.");
+    return;
+  }
+
+  try {
+    const directoryHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    const exportJsonHandle = await directoryHandle.getFileHandle("export.json");
+    const exportJsonFile = await exportJsonHandle.getFile();
+
+    let zipHandle = null;
+    let zipFile = null;
+    try {
+      zipHandle = await directoryHandle.getFileHandle("images.zip");
+      zipFile = await zipHandle.getFile();
+    } catch {
+      zipHandle = null;
+      zipFile = null;
+    }
+
+    await loadFromResolvedFiles({
+      exportJsonFile,
+      zipFile,
+      folderName: directoryHandle.name || "Ordner",
+      handles: { directoryHandle, exportJsonHandle, zipHandle },
+    });
+
+    toast("Ordner mit Schreibzugriff geladen (Live-Speichern aktiv).");
+  } catch (e) {
+    if (e?.name === "AbortError") return;
+    alert("Fehler beim Live-Laden des Ordners: " + e);
+  }
+}
+
 export function wireUiEvents() {
   const folderInput = $("datasetFolderInput");
+  const pickFolderBtn = $("pickFolderBtn");
+
+  if (pickFolderBtn) {
+    pickFolderBtn.hidden = !hasFileSystemAccessApi();
+    pickFolderBtn.addEventListener("click", async () => {
+      await pickAndLoadDirectoryLive();
+    });
+  }
 
   const updateSelectedFileHint = () => {
     const files = Array.from(folderInput.files || []);
@@ -173,7 +264,7 @@ export function wireUiEvents() {
 
   $("startSearchBtn").addEventListener("click", async () => {
     if (!state.activeDataset) {
-      alert("Bitte zuerst JSON-Datei(en) laden.");
+      alert("Bitte zuerst einen Datensatz laden.");
       return;
     }
 
@@ -195,14 +286,14 @@ export function wireUiEvents() {
     }
   });
 
-  $("saveOriginalBtn").addEventListener("click", () => {
+  $("saveOriginalBtn").addEventListener("click", async () => {
     if (!state.activeDataset) return;
-    saveAsOriginalDownload();
+    await saveAsOriginalDownload();
   });
 
-  $("saveCopyBtn").addEventListener("click", () => {
+  $("saveCopyBtn").addEventListener("click", async () => {
     if (!state.activeDataset) return;
-    saveAsCopyDownload();
+    await saveAsCopyDownload();
   });
 
   ["prevPage", "nextPage"].forEach((id) => {

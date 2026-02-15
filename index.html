@@ -34,11 +34,12 @@
 <div class="wrap">
   <aside class="card">
     <h2>1) Dateien laden</h2>
-    <div class="small">Wähle einen Datensatz-Ordner. Erwartet werden <code>export.json</code> und optional <code>images.zip</code>.</div>
+    <div class="small">Wähle einen Datensatz-Ordner. Erwartet werden <code>export.json</code> und optional <code>images.zip</code>. Für Live-Speichern nutze „Ordner mit Schreibzugriff“ (falls unterstützt).</div>
     <label for="datasetFolderInput">Datensatz-Ordner</label>
     <input id="datasetFolderInput" type="file" webkitdirectory directory>
     <div class="row2" style="margin-top:10px;">
       <button class="btn primary" id="loadFilesBtn" type="button">Ordner laden</button>
+      <button class="btn" id="pickFolderBtn" type="button" hidden>Ordner mit Schreibzugriff</button>
     </div>
     <div class="small" id="loadedFileHint" style="margin-top:8px;">Noch kein Ordner ausgewählt.</div>
 
@@ -71,7 +72,7 @@
     <hr class="sep">
 
     <h2>3) Speichern</h2>
-    <div class="small">Hinweis: Beim Speichern werden immer <code>export.json</code> und eine vollständige <code>images.zip</code> heruntergeladen.</div>
+    <div class="small">Hinweis: Bei Live-Ordnerzugriff wird direkt im gewählten Ordner gespeichert, sonst per Download. Immer als Einheit: <code>export.json</code> + vollständige <code>images.zip</code>.</div>
     <div class="row2" style="margin-top:10px;">
       <button class="btn primary" id="saveOriginalBtn" type="button">Mit Original-Dateinamen speichern</button>
       <button class="btn" id="saveCopyBtn" type="button">Als Kopie speichern</button>
