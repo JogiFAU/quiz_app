@@ -2,8 +2,8 @@ import { $, toast } from "../utils.js";
 import { state, resetEditorState } from "../state.js";
 import { loadJsonFiles, syncQuestionToSource, buildDatasetExports } from "../data/loaders.js";
 import { buildImagesZipBlob, clearLocalImageObjectUrls, loadZipFile } from "../data/zipImages.js";
-import { filterByExams, filterByImageMode, searchQuestions } from "../quiz/filters.js";
-import { renderAll, updateExamLists } from "./render.js";
+import { filterByExams, filterByImageMode, filterByQuality, filterByTopics, searchQuestions } from "../quiz/filters.js";
+import { refreshHeaderStatus, renderAll, updateExamLists, updateTopicList } from "./render.js";
 
 function selectedExamsFromList() {
   const el = $("examListSearch");
@@ -13,9 +13,48 @@ function selectedExamsFromList() {
     .filter(Boolean);
 }
 
+
+function selectedTopicsFromList() {
+  const el = $("topicListSearch");
+  if (!el) return [];
+  return Array.from(el.querySelectorAll("input[type=checkbox][data-topic-type]:checked"))
+    .map((x) => {
+      if (x.dataset.topicType === "super") return `super::${x.dataset.topicValue || ""}`;
+      return `sub::${x.dataset.parentTopic || ""}::${x.dataset.topicValue || ""}`;
+    })
+    .filter((v) => v !== "super::" && v !== "sub::::");
+}
+
+function syncSuperTopicState(superTopic) {
+  const list = $("topicListSearch");
+  if (!list) return;
+
+  const superCb = list.querySelector(`input[data-topic-type="super"][data-topic-value="${CSS.escape(superTopic)}"]`);
+  if (!superCb) return;
+
+  const childCbs = Array.from(list.querySelectorAll(`input[data-topic-type="sub"][data-parent-topic="${CSS.escape(superTopic)}"]`));
+  if (!childCbs.length) return;
+
+  const checkedCount = childCbs.filter((cb) => cb.checked).length;
+  superCb.indeterminate = checkedCount > 0 && checkedCount < childCbs.length;
+  superCb.checked = checkedCount === childCbs.length;
+}
+
+function syncAllSuperTopicStates() {
+  const list = $("topicListSearch");
+  if (!list) return;
+  const supers = Array.from(list.querySelectorAll('input[data-topic-type="super"]'));
+  supers.forEach((cb) => syncSuperTopicState(cb.dataset.topicValue || ""));
+}
+
 function defaultSearchConfig() {
   return {
     exams: [],
+    topics: [],
+    topicConfidenceMin: 0,
+    answerConfidenceMin: 0,
+    onlyRecommendChange: false,
+    onlyNeedsMaintenance: false,
     imageFilter: "all",
     query: "",
     inAnswers: false,
@@ -25,6 +64,11 @@ function defaultSearchConfig() {
 function buildSearchConfigFromUi() {
   return {
     exams: selectedExamsFromList(),
+    topics: selectedTopicsFromList(),
+    topicConfidenceMin: Number($("topicConfidenceMinSearch")?.value || 0),
+    answerConfidenceMin: Number($("answerConfidenceMinSearch")?.value || 0),
+    onlyRecommendChange: !!$("onlyRecommendChangeSearch")?.checked,
+    onlyNeedsMaintenance: !!$("onlyNeedsMaintenanceSearch")?.checked,
     imageFilter: $("imageFilterSearch").value,
     query: $("searchText").value,
     inAnswers: $("searchInAnswers").checked,
@@ -36,18 +80,44 @@ function applySearchConfigToUi(config) {
   $("imageFilterSearch").value = cfg.imageFilter || "all";
   $("searchText").value = cfg.query || "";
   $("searchInAnswers").checked = !!cfg.inAnswers;
+  $("topicConfidenceMinSearch").value = String(Number(cfg.topicConfidenceMin || 0));
+  $("answerConfidenceMinSearch").value = String(Number(cfg.answerConfidenceMin || 0));
+  $("onlyRecommendChangeSearch").checked = !!cfg.onlyRecommendChange;
+  $("onlyNeedsMaintenanceSearch").checked = !!cfg.onlyNeedsMaintenance;
+  updateSliderLabels();
 
-  const selected = new Set(cfg.exams || []);
-  const list = $("examListSearch");
-  if (!list) return;
-  list.querySelectorAll("input[type=checkbox][data-exam]").forEach((cb) => {
-    cb.checked = selected.has(cb.dataset.exam);
-  });
+  const selectedExams = new Set(cfg.exams || []);
+  const examList = $("examListSearch");
+  if (examList) {
+    examList.querySelectorAll("input[type=checkbox][data-exam]").forEach((cb) => {
+      cb.checked = selectedExams.has(cb.dataset.exam);
+    });
+  }
+
+  const selectedTopics = new Set(cfg.topics || []);
+  const topicList = $("topicListSearch");
+  if (topicList) {
+    topicList.querySelectorAll('input[data-topic-type="super"]').forEach((cb) => {
+      cb.checked = selectedTopics.has(`super::${cb.dataset.topicValue || ""}`);
+      cb.indeterminate = false;
+    });
+    topicList.querySelectorAll('input[data-topic-type="sub"]').forEach((cb) => {
+      cb.checked = selectedTopics.has(`sub::${cb.dataset.parentTopic || ""}::${cb.dataset.topicValue || ""}`);
+    });
+    syncAllSuperTopicStates();
+  }
 }
 
 function computeSearchSubset(config) {
   let qs = state.questionsAll.slice();
   qs = filterByExams(qs, config.exams);
+  qs = filterByTopics(qs, config.topics);
+  qs = filterByQuality(qs, {
+    topicConfidenceMin: config.topicConfidenceMin,
+    answerConfidenceMin: config.answerConfidenceMin,
+    onlyRecommendChange: config.onlyRecommendChange,
+    onlyNeedsMaintenance: config.onlyNeedsMaintenance,
+  });
   qs = filterByImageMode(qs, config.imageFilter);
   return searchQuestions(qs, { query: config.query, inAnswers: config.inAnswers });
 }
@@ -56,10 +126,24 @@ function resetSearchConfig() {
   $("imageFilterSearch").value = "all";
   $("searchText").value = "";
   $("searchInAnswers").checked = false;
+  $("topicConfidenceMinSearch").value = "0";
+  $("answerConfidenceMinSearch").value = "0";
+  $("onlyRecommendChangeSearch").checked = false;
+  $("onlyNeedsMaintenanceSearch").checked = false;
+  updateSliderLabels();
   $("pageSize").value = "50";
   $("pageNumber").value = "1";
   $("bulkSearchText").value = "";
   $("bulkReplaceText").value = "";
+}
+
+function updateSliderLabels() {
+  const topicValue = Number($("topicConfidenceMinSearch")?.value || 0).toFixed(2);
+  const answerValue = Number($("answerConfidenceMinSearch")?.value || 0).toFixed(2);
+  const topicLabel = $("topicConfidenceMinValue");
+  const answerLabel = $("answerConfidenceMinValue");
+  if (topicLabel) topicLabel.textContent = topicValue;
+  if (answerLabel) answerLabel.textContent = answerValue;
 }
 
 function baseFilenameFromUrl(url) {
@@ -213,18 +297,25 @@ function getFolderNameFromEntry(file) {
 
 function parseTopicTree(raw) {
   const source = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const items = Array.isArray(source?.superTopics) ? source.superTopics : [];
+  const items = Array.isArray(source?.superTopics)
+    ? source.superTopics
+    : (Array.isArray(source?.topics) ? source.topics : []);
   const superTopics = [];
   const allSubTopics = new Set();
   const subTopicsBySuper = {};
 
   for (const item of items) {
-    const superName = String(item?.name || "").trim();
+    const superName = String(item?.name || item?.superTopic || item?.title || "").trim();
     if (!superName) continue;
 
-    const subs = Array.isArray(item?.subtopics)
-      ? item.subtopics.map((s) => String(s || "").trim()).filter(Boolean)
-      : [];
+    const rawSubs = Array.isArray(item?.subtopics)
+      ? item.subtopics
+      : (Array.isArray(item?.subTopics) ? item.subTopics : []);
+
+    const subs = rawSubs.map((s) => {
+      if (typeof s === "string") return s.trim();
+      return String(s?.name || s?.title || s?.subTopic || "").trim();
+    }).filter(Boolean);
 
     superTopics.push(superName);
     subTopicsBySuper[superName] = subs;
@@ -238,27 +329,60 @@ function parseTopicTree(raw) {
   };
 }
 
-async function loadTopicTreeFromFile(file) {
+async function loadTopicTreeFromFile(file, { quiet = false } = {}) {
   if (!file) {
     state.topicCatalog = null;
-    const hint = $("topicTreeHint");
-    if (hint) hint.textContent = "Keine Themenquelle geladen.";
-    await renderAll();
     return;
   }
 
   try {
     const txt = await file.text();
     state.topicCatalog = parseTopicTree(txt);
-    const hint = $("topicTreeHint");
-    if (hint) {
-      hint.textContent = `Geladen: ${file.name} · ${state.topicCatalog.superTopics.length} Überthemen`; 
+    if (!quiet) {
+      toast(`Themenstruktur geladen: ${file.name}`);
     }
-    await renderAll();
-    toast("Themenstruktur geladen.");
   } catch (err) {
-    alert("Themenstruktur konnte nicht gelesen werden. Erwartetes Format: { superTopics: [{ name, subtopics: [] }] }");
+    state.topicCatalog = null;
+    if (!quiet) {
+      alert("Themenstruktur konnte nicht gelesen werden. Erwartetes Format: { superTopics: [{ name, subtopics: [] }] }");
+    }
   }
+}
+
+function findTopicTreeFile(directoryFiles) {
+  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
+  const files = directoryFiles || [];
+  const byLower = new Map(files.map((f) => [String(f.name || "").toLowerCase(), f]));
+  for (const candidate of candidates) {
+    const match = byLower.get(candidate.toLowerCase());
+    if (match) return match;
+  }
+  return files.find((file) => /topic[-_]?tree.*\.json$/i.test(String(file?.name || ""))) || null;
+}
+
+async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
+  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
+  for (const candidate of candidates) {
+    try {
+      const handle = await directoryHandle.getFileHandle(candidate);
+      const file = await handle.getFile();
+      return file;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  try {
+    for await (const handle of directoryHandle.values()) {
+      if (handle.kind === "file" && /topic[-_]?tree.*\.json$/i.test(handle.name)) {
+        return await handle.getFile();
+      }
+    }
+  } catch {
+    // browser might not support iteration
+  }
+
+  return null;
 }
 
 function replaceAcrossQuestion(question, searchText, replaceText) {
@@ -318,10 +442,11 @@ async function applyBulkReplace() {
   toast(`Suchen/Ersetzen auf ${changed} Frage(n) angewendet.`);
 }
 
-async function loadFromResolvedFiles({ exportJsonFile, zipFile, folderName, handles = null, uiSnapshot = null }) {
+async function loadFromResolvedFiles({ exportJsonFile, zipFile, topicTreeFile = null, folderName, handles = null, uiSnapshot = null }) {
   clearLocalImageObjectUrls();
   await loadJsonFiles([exportJsonFile]);
   await loadZipFile(zipFile);
+  await loadTopicTreeFromFile(topicTreeFile, { quiet: true });
 
   state.activeDataset = {
     id: "upload",
@@ -338,6 +463,7 @@ async function loadFromResolvedFiles({ exportJsonFile, zipFile, folderName, hand
 
   resetSearchConfig();
   updateExamLists(startConfig.exams || []);
+  updateTopicList(startConfig.topics || []);
   applySearchConfigToUi(startConfig);
   applySnapshotAfterReload(uiSnapshot);
 
@@ -364,10 +490,11 @@ async function loadDatasetFromDirectoryFiles(directoryFiles) {
   }
 
   const zipFile = directoryFiles.find((file) => file.name.toLowerCase() === "images.zip") || null;
+  const topicTreeFile = findTopicTreeFile(directoryFiles);
 
   try {
     const folderName = getFolderNameFromEntry(exportJson);
-    await loadFromResolvedFiles({ exportJsonFile: exportJson, zipFile, folderName });
+    await loadFromResolvedFiles({ exportJsonFile: exportJson, zipFile, topicTreeFile, folderName });
     toast("Ordner geladen.");
   } catch (e) {
     alert("Fehler beim Laden des Ordners: " + e);
@@ -395,9 +522,12 @@ async function pickAndLoadDirectoryLive() {
       zipFile = null;
     }
 
+    const topicTreeFile = await getTopicTreeFileFromDirectoryHandle(directoryHandle);
+
     await loadFromResolvedFiles({
       exportJsonFile,
       zipFile,
+      topicTreeFile,
       folderName: directoryHandle.name || "Ordner",
       handles: { directoryHandle, exportJsonHandle, zipHandle },
     });
@@ -410,6 +540,7 @@ async function pickAndLoadDirectoryLive() {
 }
 
 export function wireUiEvents() {
+  updateSliderLabels();
   const folderInput = $("datasetFolderInput");
   const pickFolderBtn = $("pickFolderBtn");
 
@@ -449,14 +580,6 @@ export function wireUiEvents() {
     await loadDatasetFromDirectoryFiles(folderFiles);
   });
 
-  const topicTreeInput = $("topicTreeInput");
-  if (topicTreeInput) {
-    topicTreeInput.addEventListener("change", async () => {
-      const file = topicTreeInput.files?.[0] || null;
-      await loadTopicTreeFromFile(file);
-    });
-  }
-
   $("startSearchBtn").addEventListener("click", async () => {
     if (!state.activeDataset) {
       alert("Bitte zuerst einen Datensatz laden.");
@@ -480,6 +603,7 @@ export function wireUiEvents() {
     resetSearchConfig();
     state.searchConfig = defaultSearchConfig();
     updateExamLists([]);
+    updateTopicList([]);
     if (state.activeDataset) {
       state.view = "config";
       state.searchOrder = [];
@@ -506,9 +630,10 @@ export function wireUiEvents() {
   });
   ["pageSize", "pageNumber"].forEach((id) => $(id).addEventListener("change", async () => await renderAll()));
 
-  ["imageFilterSearch", "searchText", "searchInAnswers"].forEach((id) => {
+  ["imageFilterSearch", "searchText", "searchInAnswers", "topicConfidenceMinSearch", "answerConfidenceMinSearch", "onlyRecommendChangeSearch", "onlyNeedsMaintenanceSearch"].forEach((id) => {
     const el = $(id);
     el.addEventListener(el.tagName === "INPUT" ? "input" : "change", async () => {
+      updateSliderLabels();
       if (state.view === "search") {
         const cfg = buildSearchConfigFromUi();
         state.searchConfig = cfg;
@@ -527,7 +652,38 @@ export function wireUiEvents() {
     await renderAll();
   });
 
-  $("questionList").addEventListener("input", () => {
-    state.dirty = true;
+  const topicList = $("topicListSearch");
+  if (topicList) {
+    topicList.addEventListener("change", async (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+
+      if (target.dataset.topicType === "super") {
+        const superTopic = target.dataset.topicValue || "";
+        topicList
+          .querySelectorAll(`input[data-topic-type="sub"][data-parent-topic="${CSS.escape(superTopic)}"]`)
+          .forEach((subCb) => {
+            subCb.checked = target.checked;
+          });
+        target.indeterminate = false;
+      } else if (target.dataset.topicType === "sub") {
+        syncSuperTopicState(target.dataset.parentTopic || "");
+      }
+
+      if (state.view === "search") {
+        const cfg = buildSearchConfigFromUi();
+        state.searchConfig = cfg;
+        state.searchOrder = computeSearchSubset(cfg).map((q) => q.id);
+      }
+      await renderAll();
+    });
+  }
+
+  const questionList = $("questionList");
+  ["input", "change"].forEach((evt) => {
+    questionList.addEventListener(evt, () => {
+      state.dirty = true;
+      refreshHeaderStatus();
+    });
   });
 }
