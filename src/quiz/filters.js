@@ -26,6 +26,25 @@ export function filterByTopics(qs, topicFilters = []) {
   });
 }
 
+
+export function filterByQuality(qs, {
+  topicConfidenceMin = 0,
+  answerConfidenceMin = 0,
+  onlyRecommendChange = false,
+  onlyNeedsMaintenance = false,
+} = {}) {
+  return qs.filter((q) => {
+    const topicConfidence = Number(q.topicConfidence ?? 0);
+    const answerConfidence = Number(q.answerConfidence ?? 0);
+
+    if (topicConfidence < Number(topicConfidenceMin || 0)) return false;
+    if (answerConfidence < Number(answerConfidenceMin || 0)) return false;
+    if (onlyRecommendChange && !q.recommendChange) return false;
+    if (onlyNeedsMaintenance && !q.needsMaintenance) return false;
+    return true;
+  });
+}
+
 export function applyRandomAndShuffle(qs, { randomN = 0, shuffleQuestions = false } = {}) {
   const rng = mulberry32(Date.now());
 

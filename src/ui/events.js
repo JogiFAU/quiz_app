@@ -2,7 +2,7 @@ import { $, toast } from "../utils.js";
 import { state, resetEditorState } from "../state.js";
 import { loadJsonFiles, syncQuestionToSource, buildDatasetExports } from "../data/loaders.js";
 import { buildImagesZipBlob, clearLocalImageObjectUrls, loadZipFile } from "../data/zipImages.js";
-import { filterByExams, filterByImageMode, filterByTopics, searchQuestions } from "../quiz/filters.js";
+import { filterByExams, filterByImageMode, filterByQuality, filterByTopics, searchQuestions } from "../quiz/filters.js";
 import { refreshHeaderStatus, renderAll, updateExamLists, updateTopicList } from "./render.js";
 
 function selectedExamsFromList() {
@@ -51,6 +51,10 @@ function defaultSearchConfig() {
   return {
     exams: [],
     topics: [],
+    topicConfidenceMin: 0,
+    answerConfidenceMin: 0,
+    onlyRecommendChange: false,
+    onlyNeedsMaintenance: false,
     imageFilter: "all",
     query: "",
     inAnswers: false,
@@ -61,6 +65,10 @@ function buildSearchConfigFromUi() {
   return {
     exams: selectedExamsFromList(),
     topics: selectedTopicsFromList(),
+    topicConfidenceMin: Number($("topicConfidenceMinSearch")?.value || 0),
+    answerConfidenceMin: Number($("answerConfidenceMinSearch")?.value || 0),
+    onlyRecommendChange: !!$("onlyRecommendChangeSearch")?.checked,
+    onlyNeedsMaintenance: !!$("onlyNeedsMaintenanceSearch")?.checked,
     imageFilter: $("imageFilterSearch").value,
     query: $("searchText").value,
     inAnswers: $("searchInAnswers").checked,
@@ -72,6 +80,11 @@ function applySearchConfigToUi(config) {
   $("imageFilterSearch").value = cfg.imageFilter || "all";
   $("searchText").value = cfg.query || "";
   $("searchInAnswers").checked = !!cfg.inAnswers;
+  $("topicConfidenceMinSearch").value = String(Number(cfg.topicConfidenceMin || 0));
+  $("answerConfidenceMinSearch").value = String(Number(cfg.answerConfidenceMin || 0));
+  $("onlyRecommendChangeSearch").checked = !!cfg.onlyRecommendChange;
+  $("onlyNeedsMaintenanceSearch").checked = !!cfg.onlyNeedsMaintenance;
+  updateSliderLabels();
 
   const selectedExams = new Set(cfg.exams || []);
   const examList = $("examListSearch");
@@ -99,6 +112,12 @@ function computeSearchSubset(config) {
   let qs = state.questionsAll.slice();
   qs = filterByExams(qs, config.exams);
   qs = filterByTopics(qs, config.topics);
+  qs = filterByQuality(qs, {
+    topicConfidenceMin: config.topicConfidenceMin,
+    answerConfidenceMin: config.answerConfidenceMin,
+    onlyRecommendChange: config.onlyRecommendChange,
+    onlyNeedsMaintenance: config.onlyNeedsMaintenance,
+  });
   qs = filterByImageMode(qs, config.imageFilter);
   return searchQuestions(qs, { query: config.query, inAnswers: config.inAnswers });
 }
@@ -107,10 +126,24 @@ function resetSearchConfig() {
   $("imageFilterSearch").value = "all";
   $("searchText").value = "";
   $("searchInAnswers").checked = false;
+  $("topicConfidenceMinSearch").value = "0";
+  $("answerConfidenceMinSearch").value = "0";
+  $("onlyRecommendChangeSearch").checked = false;
+  $("onlyNeedsMaintenanceSearch").checked = false;
+  updateSliderLabels();
   $("pageSize").value = "50";
   $("pageNumber").value = "1";
   $("bulkSearchText").value = "";
   $("bulkReplaceText").value = "";
+}
+
+function updateSliderLabels() {
+  const topicValue = Number($("topicConfidenceMinSearch")?.value || 0).toFixed(2);
+  const answerValue = Number($("answerConfidenceMinSearch")?.value || 0).toFixed(2);
+  const topicLabel = $("topicConfidenceMinValue");
+  const answerLabel = $("answerConfidenceMinValue");
+  if (topicLabel) topicLabel.textContent = topicValue;
+  if (answerLabel) answerLabel.textContent = answerValue;
 }
 
 function baseFilenameFromUrl(url) {
@@ -264,18 +297,25 @@ function getFolderNameFromEntry(file) {
 
 function parseTopicTree(raw) {
   const source = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const items = Array.isArray(source?.superTopics) ? source.superTopics : [];
+  const items = Array.isArray(source?.superTopics)
+    ? source.superTopics
+    : (Array.isArray(source?.topics) ? source.topics : []);
   const superTopics = [];
   const allSubTopics = new Set();
   const subTopicsBySuper = {};
 
   for (const item of items) {
-    const superName = String(item?.name || "").trim();
+    const superName = String(item?.name || item?.superTopic || item?.title || "").trim();
     if (!superName) continue;
 
-    const subs = Array.isArray(item?.subtopics)
-      ? item.subtopics.map((s) => String(s || "").trim()).filter(Boolean)
-      : [];
+    const rawSubs = Array.isArray(item?.subtopics)
+      ? item.subtopics
+      : (Array.isArray(item?.subTopics) ? item.subTopics : []);
+
+    const subs = rawSubs.map((s) => {
+      if (typeof s === "string") return s.trim();
+      return String(s?.name || s?.title || s?.subTopic || "").trim();
+    }).filter(Boolean);
 
     superTopics.push(superName);
     subTopicsBySuper[superName] = subs;
@@ -311,12 +351,13 @@ async function loadTopicTreeFromFile(file, { quiet = false } = {}) {
 
 function findTopicTreeFile(directoryFiles) {
   const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
-  const byLower = new Map((directoryFiles || []).map((f) => [String(f.name || "").toLowerCase(), f]));
+  const files = directoryFiles || [];
+  const byLower = new Map(files.map((f) => [String(f.name || "").toLowerCase(), f]));
   for (const candidate of candidates) {
     const match = byLower.get(candidate.toLowerCase());
     if (match) return match;
   }
-  return null;
+  return files.find((file) => /topic[-_]?tree.*\.json$/i.test(String(file?.name || ""))) || null;
 }
 
 async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
@@ -330,6 +371,17 @@ async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
       // try next candidate
     }
   }
+
+  try {
+    for await (const handle of directoryHandle.values()) {
+      if (handle.kind === "file" && /topic[-_]?tree.*\.json$/i.test(handle.name)) {
+        return await handle.getFile();
+      }
+    }
+  } catch {
+    // browser might not support iteration
+  }
+
   return null;
 }
 
@@ -488,6 +540,7 @@ async function pickAndLoadDirectoryLive() {
 }
 
 export function wireUiEvents() {
+  updateSliderLabels();
   const folderInput = $("datasetFolderInput");
   const pickFolderBtn = $("pickFolderBtn");
 
@@ -577,9 +630,10 @@ export function wireUiEvents() {
   });
   ["pageSize", "pageNumber"].forEach((id) => $(id).addEventListener("change", async () => await renderAll()));
 
-  ["imageFilterSearch", "searchText", "searchInAnswers"].forEach((id) => {
+  ["imageFilterSearch", "searchText", "searchInAnswers", "topicConfidenceMinSearch", "answerConfidenceMinSearch", "onlyRecommendChangeSearch", "onlyNeedsMaintenanceSearch"].forEach((id) => {
     const el = $(id);
     el.addEventListener(el.tagName === "INPUT" ? "input" : "change", async () => {
+      updateSliderLabels();
       if (state.view === "search") {
         const cfg = buildSearchConfigFromUi();
         state.searchConfig = cfg;
