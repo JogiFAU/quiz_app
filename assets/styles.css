@@ -1,20 +1,10 @@
 :root {
   --bg: #0b0f17;
-  --bg-top: #070a10;
   --panel: #121a27;
   --panel2: #0f1622;
-  --panel-soft: rgba(18,26,39,0.65);
-  --panel-soft-2: rgba(18,26,39,0.55);
-  --panel-soft-3: rgba(15,22,34,.55);
-  --panel-soft-4: rgba(15,22,34,.45);
-  --panel-hover: rgba(29,42,68,.35);
-  --header-bg: rgba(18,26,39,0.78);
   --text: #e8eefc;
   --muted: #a9b4cc;
   --border: #22304a;
-  --progress-track: #0a0f18;
-  --tooltip-bg: rgba(18,26,39,.98);
-  --toast-bg: rgba(18,26,39,.92);
 
   --ok: #2e7d32;
   --bad: #c62828;
@@ -29,45 +19,19 @@
   --focus: #7aa2ff;
 }
 
-:root[data-theme="light"] {
-  --bg: #eef2f8;
-  --bg-top: #f9fbff;
-  --panel: #ffffff;
-  --panel2: #f6f8fc;
-  --panel-soft: rgba(255,255,255,0.94);
-  --panel-soft-2: rgba(255,255,255,0.86);
-  --panel-soft-3: rgba(248,250,255,.92);
-  --panel-soft-4: rgba(244,247,255,.95);
-  --panel-hover: rgba(122,162,255,.16);
-  --header-bg: rgba(255,255,255,0.9);
-  --text: #172033;
-  --muted: #55607a;
-  --border: #cfd8ea;
-  --progress-track: #e6ebf5;
-  --tooltip-bg: rgba(255,255,255,.98);
-  --toast-bg: rgba(255,255,255,.96);
-
-  --okbg: rgba(46,125,50,.12);
-  --badbg: rgba(198,40,40,.12);
-  --neubg: rgba(96,125,139,.16);
-
-  --btn: #eaf0ff;
-  --btn2: #dee8ff;
-}
-
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  background: linear-gradient(180deg, var(--bg-top), var(--bg));
+  background: linear-gradient(180deg, #070a10, var(--bg));
   color: var(--text);
 }
 
 .top {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border);
-  background: var(--header-bg);
+  background: rgba(18,26,39,0.78);
   position: sticky;
   top: 0;
   backdrop-filter: blur(10px);
@@ -85,24 +49,6 @@ body {
 .top__subtitle { color: var(--muted); font-size: 12px; margin-top: 4px; }
 
 .top__right { display: grid; gap: 10px; }
-.top__progressRow {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-  align-items: center;
-}
-.themeToggle {
-  width: 30px;
-  height: 30px;
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--btn);
-  color: var(--text);
-  cursor: pointer;
-  font-size: 14px;
-  line-height: 1;
-}
-.themeToggle:hover { background: var(--btn2); }
 .top__stats { display: flex; gap: 18px; justify-content: flex-end; }
 @media (max-width: 980px) { .top__stats { justify-content: flex-start; } }
 
@@ -123,7 +69,7 @@ body {
 
 .card {
   border: 1px solid var(--border);
-  background: var(--panel-soft);
+  background: rgba(18,26,39,0.65);
   border-radius: 14px;
   padding: 14px;
   box-shadow: 0 10px 30px rgba(0,0,0,.25);
@@ -191,7 +137,7 @@ input:hover, select:hover {
   padding: 10px 12px;
   border-radius: 12px;
   border: 1px solid var(--border);
-  background: var(--panel-soft-3);
+  background: rgba(15,22,34,.55);
   color: var(--text);
   cursor: pointer;
   font-weight: 800;
@@ -208,16 +154,16 @@ input:hover, select:hover {
   padding: 10px 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--panel-soft-4);
+  background: rgba(15,22,34,.45);
   cursor: pointer;
   transition: border-color .12s ease, background .12s ease;
 }
-.checkrow:hover { border-color: rgba(122,162,255,.55); background: var(--panel-hover); }
+.checkrow:hover { border-color: rgba(122,162,255,.55); background: rgba(29,42,68,.35); }
 .checkrow input { transform: scale(1.1); cursor: pointer; }
 
 .progress {
   height: 10px;
-  background: var(--progress-track);
+  background: #0a0f18;
   border: 1px solid var(--border);
   border-radius: 999px;
   overflow: hidden;
@@ -235,7 +181,7 @@ hr.sep { border:0; border-top:1px solid var(--border); margin:14px 0; }
 .qcard {
   border: 2px solid var(--border);
   border-radius: 14px;
-  background: var(--panel-soft-2);
+  background: rgba(18,26,39,.55);
   padding: 14px;
   margin-bottom: 12px;
 }
@@ -251,7 +197,7 @@ hr.sep { border:0; border-top:1px solid var(--border); margin:14px 0; }
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 10px;
-  background: var(--panel-soft-3);
+  background: rgba(15,22,34,.55);
   display: grid;
   grid-template-columns: 20px 1fr;
   gap: 10px;
@@ -259,7 +205,7 @@ hr.sep { border:0; border-top:1px solid var(--border); margin:14px 0; }
   cursor: pointer;
   transition: border-color .12s ease, background .12s ease;
 }
-.opt:hover { border-color: rgba(122,162,255,.55); background: var(--panel-hover); }
+.opt:hover { border-color: rgba(122,162,255,.55); background: rgba(29,42,68,.35); }
 .opt.ok { border-color: rgba(46,125,50,.7); background: rgba(15,36,21,.65); }
 .opt.bad { border-color: rgba(198,40,40,.7); background: rgba(42,16,16,.65); }
 
@@ -287,7 +233,7 @@ hr.sep { border:0; border-top:1px solid var(--border); margin:14px 0; }
   height: 28px;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--panel-soft-3);
+  background: rgba(15,22,34,.7);
   color: var(--muted);
   font-weight: 900;
   cursor: help;
@@ -302,7 +248,7 @@ hr.sep { border:0; border-top:1px solid var(--border); margin:14px 0; }
   padding: 9px 10px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: var(--tooltip-bg);
+  background: rgba(18,26,39,.98);
   color: var(--text);
   font-size: 12px;
   line-height: 1.35;
@@ -337,7 +283,7 @@ summary { cursor: pointer; color: var(--muted); }
   bottom: 18px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--toast-bg);
+  background: rgba(18,26,39,.92);
   border: 1px solid rgba(122,162,255,.45);
   color: var(--text);
   padding: 10px 12px;
@@ -353,7 +299,7 @@ summary { cursor: pointer; color: var(--muted); }
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  background: var(--panel-soft-4);
+  background: rgba(15,22,34,.45);
 }
 .examitem {
   display: grid;
@@ -372,7 +318,7 @@ summary { cursor: pointer; color: var(--muted); }
 }
 .examleft input { transform: scale(1.05); cursor: pointer; }
 .examname { font-weight: 750; font-size: 13px; }
-.examitem:hover { background: var(--panel-hover); }
+.examitem:hover { background: rgba(29,42,68,.25); }
 
 .examstats { display: grid; gap: 6px; justify-items: end; }
 .exambar {
@@ -381,7 +327,7 @@ summary { cursor: pointer; color: var(--muted); }
   border-radius: 999px;
   overflow: hidden;
   border: 1px solid var(--border);
-  background: var(--progress-track);
+  background: #0a0f18;
   display: flex;
 }
 .examseg.ok { background: rgba(46,125,50,.9); }
@@ -405,11 +351,11 @@ summary { cursor: pointer; color: var(--muted); }
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: var(--panel-soft-4);
+  background: rgba(15,22,34,.45);
   cursor: pointer;
   transition: border-color .12s ease, background .12s ease;
 }
-.tocitem:hover { border-color: rgba(122,162,255,.55); background: var(--panel-hover); }
+.tocitem:hover { border-color: rgba(122,162,255,.55); background: rgba(29,42,68,.35); }
 .tocdot {
   width: 10px; height: 10px;
   border-radius: 999px;
@@ -443,7 +389,7 @@ summary { cursor: pointer; color: var(--muted); }
 }
 
 .examitem { cursor: pointer; }
-.examitem.selected { background: var(--panel-hover); }
+.examitem.selected { background: rgba(29,42,68,.45); }
 .examitem.selected .examname { color: var(--text); }
 .exampct.placeholder { opacity: .75; font-weight: 700; text-align: right; }
 
@@ -457,7 +403,7 @@ summary { cursor: pointer; color: var(--muted); }
   padding: 10px 12px;
   border-radius: 999px;
   border: 1px solid rgba(122,162,255,.55);
-  background: var(--toast-bg);
+  background: rgba(18,26,39,.92);
   color: var(--text);
   font-weight: 800;
   cursor: pointer;
@@ -490,7 +436,7 @@ summary { cursor: pointer; color: var(--muted); }
   padding: 10px 12px;
   border-radius: 14px;
   border: 1px solid rgba(122,162,255,.20);
-  background: var(--panel-soft-2);
+  background: rgba(18,26,39,.22);
 }
 
 .qtext mark.hl,
@@ -532,7 +478,7 @@ summary { cursor: pointer; color: var(--muted); }
   padding: 8px 10px;
   border-radius: 999px;
   border: 1px solid rgba(122,162,255,.22);
-  background: var(--panel-soft-2);
+  background: rgba(18,26,39,.38);
   font-weight: 800;
 }
 
@@ -555,7 +501,7 @@ summary { cursor: pointer; color: var(--muted); }
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 0;
-  background: var(--tooltip-bg);
+  background: rgba(18,26,39,.97);
   color: var(--text);
   width: min(92vw, 460px);
   box-shadow: 0 18px 45px rgba(0,0,0,.45);
@@ -588,7 +534,7 @@ summary { cursor: pointer; color: var(--muted); }
   padding: 12px 12px;
   border-radius: 16px;
   border: 1px solid rgba(122,162,255,.18);
-  background: var(--panel-soft-2);
+  background: rgba(18,26,39,.30);
 }
 .sumcard__k{ font-size: 12px; opacity:.78; margin-bottom: 6px; font-weight: 800; }
 .sumcard__v{ font-size: 18px; font-weight: 900; letter-spacing:.2px; }
