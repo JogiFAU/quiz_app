@@ -60,6 +60,10 @@ export function syncQuestionToSource(question) {
     isCorrect: !!a.isCorrect,
   }));
 
+  raw.imageFiles = Array.isArray(question.imageFiles)
+    ? question.imageFiles.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+
   const correctIndices = [];
   raw.answers.forEach((a, idx) => {
     if (a.isCorrect) correctIndices.push(idx);
