@@ -51,8 +51,8 @@ function defaultSearchConfig() {
   return {
     exams: [],
     topics: [],
-    topicConfidenceMin: 0,
-    answerConfidenceMin: 0,
+    topicConfidenceMin: 1,
+    answerConfidenceMin: 1,
     onlyRecommendChange: false,
     onlyNeedsMaintenance: false,
     imageFilter: "all",
@@ -65,8 +65,8 @@ function buildSearchConfigFromUi() {
   return {
     exams: selectedExamsFromList(),
     topics: selectedTopicsFromList(),
-    topicConfidenceMin: Number($("topicConfidenceMinSearch")?.value || 0),
-    answerConfidenceMin: Number($("answerConfidenceMinSearch")?.value || 0),
+    topicConfidenceMin: clampCutoff($("topicConfidenceMinSearch")?.value ?? 1),
+    answerConfidenceMin: clampCutoff($("answerConfidenceMinSearch")?.value ?? 1),
     onlyRecommendChange: !!$("onlyRecommendChangeSearch")?.checked,
     onlyNeedsMaintenance: !!$("onlyNeedsMaintenanceSearch")?.checked,
     imageFilter: $("imageFilterSearch").value,
@@ -80,8 +80,8 @@ function applySearchConfigToUi(config) {
   $("imageFilterSearch").value = cfg.imageFilter || "all";
   $("searchText").value = cfg.query || "";
   $("searchInAnswers").checked = !!cfg.inAnswers;
-  $("topicConfidenceMinSearch").value = String(Number(cfg.topicConfidenceMin || 0));
-  $("answerConfidenceMinSearch").value = String(Number(cfg.answerConfidenceMin || 0));
+  syncConfidenceControl("topic", Number(cfg.topicConfidenceMin ?? 1));
+  syncConfidenceControl("answer", Number(cfg.answerConfidenceMin ?? 1));
   $("onlyRecommendChangeSearch").checked = !!cfg.onlyRecommendChange;
   $("onlyNeedsMaintenanceSearch").checked = !!cfg.onlyNeedsMaintenance;
   updateSliderLabels();
@@ -126,8 +126,8 @@ function resetSearchConfig() {
   $("imageFilterSearch").value = "all";
   $("searchText").value = "";
   $("searchInAnswers").checked = false;
-  $("topicConfidenceMinSearch").value = "0";
-  $("answerConfidenceMinSearch").value = "0";
+  syncConfidenceControl("topic", 1);
+  syncConfidenceControl("answer", 1);
   $("onlyRecommendChangeSearch").checked = false;
   $("onlyNeedsMaintenanceSearch").checked = false;
   updateSliderLabels();
@@ -137,13 +137,30 @@ function resetSearchConfig() {
   $("bulkReplaceText").value = "";
 }
 
+function clampCutoff(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return 1;
+  return Math.max(0, Math.min(1, n));
+}
+
+function syncConfidenceControl(kind, rawValue, source = "range") {
+  const value = clampCutoff(rawValue);
+  const isTopic = kind === "topic";
+  const rangeEl = $(isTopic ? "topicConfidenceMinSearch" : "answerConfidenceMinSearch");
+  const inputEl = $(isTopic ? "topicConfidenceMinInput" : "answerConfidenceMinInput");
+  const labelEl = $(isTopic ? "topicConfidenceMinValue" : "answerConfidenceMinValue");
+  if (!rangeEl || !inputEl || !labelEl) return value;
+
+  const fixed = value.toFixed(2);
+  if (source !== "range") rangeEl.value = String(value);
+  if (source !== "input") inputEl.value = fixed;
+  labelEl.textContent = fixed;
+  return value;
+}
+
 function updateSliderLabels() {
-  const topicValue = Number($("topicConfidenceMinSearch")?.value || 0).toFixed(2);
-  const answerValue = Number($("answerConfidenceMinSearch")?.value || 0).toFixed(2);
-  const topicLabel = $("topicConfidenceMinValue");
-  const answerLabel = $("answerConfidenceMinValue");
-  if (topicLabel) topicLabel.textContent = topicValue;
-  if (answerLabel) answerLabel.textContent = answerValue;
+  syncConfidenceControl("topic", $("topicConfidenceMinSearch")?.value ?? 1, "range");
+  syncConfidenceControl("answer", $("answerConfidenceMinSearch")?.value ?? 1, "range");
 }
 
 function baseFilenameFromUrl(url) {
@@ -297,37 +314,70 @@ function getFolderNameFromEntry(file) {
 
 function parseTopicTree(raw) {
   const source = typeof raw === "string" ? JSON.parse(raw) : raw;
-  const items = Array.isArray(source?.superTopics)
-    ? source.superTopics
-    : (Array.isArray(source?.topics) ? source.topics : []);
   const superTopics = [];
   const allSubTopics = new Set();
   const subTopicsBySuper = {};
 
-  for (const item of items) {
-    const superName = String(item?.name || item?.superTopic || item?.title || "").trim();
-    if (!superName) continue;
+  const pushNode = (superName, subName = "") => {
+    const over = String(superName || "").trim();
+    if (!over) return;
+    if (!subTopicsBySuper[over]) {
+      subTopicsBySuper[over] = [];
+      superTopics.push(over);
+    }
+    const under = String(subName || "").trim();
+    if (under && !subTopicsBySuper[over].includes(under)) {
+      subTopicsBySuper[over].push(under);
+      allSubTopics.add(under);
+    }
+  };
 
-    const rawSubs = Array.isArray(item?.subtopics)
-      ? item.subtopics
-      : (Array.isArray(item?.subTopics) ? item.subTopics : []);
+  const walk = (node, currentSuper = "") => {
+    if (!node) return;
 
-    const subs = rawSubs.map((s) => {
-      if (typeof s === "string") return s.trim();
-      return String(s?.name || s?.title || s?.subTopic || "").trim();
-    }).filter(Boolean);
+    if (Array.isArray(node)) {
+      node.forEach((entry) => walk(entry, currentSuper));
+      return;
+    }
 
-    superTopics.push(superName);
-    subTopicsBySuper[superName] = subs;
-    subs.forEach((s) => allSubTopics.add(s));
-  }
+    if (typeof node === "string") {
+      if (currentSuper) pushNode(currentSuper, node);
+      return;
+    }
+
+    const name = String(node.name || node.superTopic || node.title || "").trim();
+    const superName = name || currentSuper;
+
+    if (superName && !currentSuper) {
+      pushNode(superName);
+    }
+
+    const candidates = [node.subtopics, node.subTopics, node.children, node.topics];
+    const firstArray = candidates.find((x) => Array.isArray(x));
+    if (firstArray) {
+      firstArray.forEach((child) => walk(child, superName));
+    }
+
+    const explicitSub = String(node.subtopic || node.subTopic || "").trim();
+    if (explicitSub && superName) {
+      pushNode(superName, explicitSub);
+    }
+  };
+
+  const roots = Array.isArray(source?.superTopics)
+    ? source.superTopics
+    : (Array.isArray(source?.topics) ? source.topics : source);
+  walk(roots, "");
 
   return {
     superTopics: Array.from(new Set(superTopics)).sort(),
-    subTopicsBySuper,
+    subTopicsBySuper: Object.fromEntries(
+      Object.entries(subTopicsBySuper).map(([k, vals]) => [k, Array.from(new Set(vals)).sort()]),
+    ),
     allSubTopics: Array.from(allSubTopics).sort(),
   };
 }
+
 
 async function loadTopicTreeFromFile(file, { quiet = false } = {}) {
   if (!file) {
@@ -347,6 +397,42 @@ async function loadTopicTreeFromFile(file, { quiet = false } = {}) {
       alert("Themenstruktur konnte nicht gelesen werden. Erwartetes Format: { superTopics: [{ name, subtopics: [] }] }");
     }
   }
+}
+
+function findTopicTreeFile(directoryFiles) {
+  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
+  const files = directoryFiles || [];
+  const byLower = new Map(files.map((f) => [String(f.name || "").toLowerCase(), f]));
+  for (const candidate of candidates) {
+    const match = byLower.get(candidate.toLowerCase());
+    if (match) return match;
+  }
+  return files.find((file) => /topic[-_]?tree.*\.json$/i.test(String(file?.name || ""))) || null;
+}
+
+async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
+  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
+  for (const candidate of candidates) {
+    try {
+      const handle = await directoryHandle.getFileHandle(candidate);
+      const file = await handle.getFile();
+      return file;
+    } catch {
+      // try next candidate
+    }
+  }
+
+  try {
+    for await (const handle of directoryHandle.values()) {
+      if (handle.kind === "file" && /topic[-_]?tree.*\.json$/i.test(handle.name)) {
+        return await handle.getFile();
+      }
+    }
+  } catch {
+    // browser might not support iteration
+  }
+
+  return null;
 }
 
 function findTopicTreeFile(directoryFiles) {
@@ -630,10 +716,21 @@ export function wireUiEvents() {
   });
   ["pageSize", "pageNumber"].forEach((id) => $(id).addEventListener("change", async () => await renderAll()));
 
-  ["imageFilterSearch", "searchText", "searchInAnswers", "topicConfidenceMinSearch", "answerConfidenceMinSearch", "onlyRecommendChangeSearch", "onlyNeedsMaintenanceSearch"].forEach((id) => {
+  ["imageFilterSearch", "searchText", "searchInAnswers", "topicConfidenceMinSearch", "answerConfidenceMinSearch", "topicConfidenceMinInput", "answerConfidenceMinInput", "onlyRecommendChangeSearch", "onlyNeedsMaintenanceSearch"].forEach((id) => {
     const el = $(id);
     el.addEventListener(el.tagName === "INPUT" ? "input" : "change", async () => {
-      updateSliderLabels();
+      if (id === "topicConfidenceMinSearch") {
+        syncConfidenceControl("topic", el.value, "range");
+      } else if (id === "answerConfidenceMinSearch") {
+        syncConfidenceControl("answer", el.value, "range");
+      } else if (id === "topicConfidenceMinInput") {
+        syncConfidenceControl("topic", el.value, "input");
+      } else if (id === "answerConfidenceMinInput") {
+        syncConfidenceControl("answer", el.value, "input");
+      } else {
+        updateSliderLabels();
+      }
+
       if (state.view === "search") {
         const cfg = buildSearchConfigFromUi();
         state.searchConfig = cfg;

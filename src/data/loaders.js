@@ -83,6 +83,22 @@ function extractAnswerConfidenceAndFlags(q) {
   return { answerConfidence, recommendChange, needsMaintenance };
 }
 
+
+function extractAiInfo(q) {
+  const topicFinal = q?.aiAudit?.topicFinal || null;
+  const topicInitial = q?.aiAudit?.topicInitial || null;
+  const passB = q?.aiAudit?.answerPlausibility?.passB || null;
+  const passA = q?.aiAudit?.answerPlausibility?.passA || null;
+  const activePass = passB || passA || null;
+
+  return {
+    topicReason: normSpace(topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
+    topicSource: String(topicFinal?.source || ""),
+    answerReason: normSpace(activePass?.reasonShort || ""),
+    answerSource: passB ? "passB" : (passA ? "passA" : ""),
+  };
+}
+
 function normalizeQuestion(q, fileIndex) {
   const id = String(q.id || "").trim();
   if (!id) return null;
@@ -95,6 +111,7 @@ function normalizeQuestion(q, fileIndex) {
   const legacySplit = parseLegacyTopic(topic);
   const topicConfidence = extractTopicConfidence(q);
   const { answerConfidence, recommendChange, needsMaintenance } = extractAnswerConfidenceAndFlags(q);
+  const { topicReason, topicSource, answerReason, answerSource } = extractAiInfo(q);
 
   return {
     id,
@@ -114,6 +131,10 @@ function normalizeQuestion(q, fileIndex) {
     answerConfidence,
     recommendChange,
     needsMaintenance,
+    topicReason,
+    topicSource,
+    answerReason,
+    answerSource,
     text: normSpace(q.questionText || q.text || ""),
     explanation: normSpace(q.explanationText || q.explanation || ""),
     answers: (q.answers || []).map((a, idx) => ({

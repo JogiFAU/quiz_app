@@ -34,11 +34,11 @@ export function filterByQuality(qs, {
   onlyNeedsMaintenance = false,
 } = {}) {
   return qs.filter((q) => {
-    const topicConfidence = Number(q.topicConfidence ?? 0);
-    const answerConfidence = Number(q.answerConfidence ?? 0);
+    const topicConfidence = Number(q.topicConfidence ?? 1);
+    const answerConfidence = Number(q.answerConfidence ?? 1);
 
-    if (topicConfidence < Number(topicConfidenceMin || 0)) return false;
-    if (answerConfidence < Number(answerConfidenceMin || 0)) return false;
+    if (topicConfidence > Number(topicConfidenceMin ?? 1)) return false;
+    if (answerConfidence > Number(answerConfidenceMin ?? 1)) return false;
     if (onlyRecommendChange && !q.recommendChange) return false;
     if (onlyNeedsMaintenance && !q.needsMaintenance) return false;
     return true;
