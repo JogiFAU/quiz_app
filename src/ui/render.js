@@ -1,6 +1,6 @@
 import { state } from "../state.js";
 import { $, letter } from "../utils.js";
-import { getImageUrl } from "../data/zipImages.js";
+import { getImageUrl, registerLocalImage, removeLocalImage } from "../data/zipImages.js";
 import { questionIdIndex } from "../quiz/filters.js";
 
 function setHeader() {
@@ -75,6 +75,85 @@ function getCurrentQuestions() {
   return state.searchOrder.map((qid) => idx.get(qid)).filter(Boolean);
 }
 
+function createImageEditor(question) {
+  const wrap = document.createElement("div");
+  wrap.className = "editorImageBlock";
+
+  const heading = document.createElement("div");
+  heading.className = "small";
+  heading.textContent = "Bilder";
+  wrap.appendChild(heading);
+
+  const files = Array.isArray(question.imageFiles) ? question.imageFiles : [];
+  if (!files.length) {
+    const empty = document.createElement("div");
+    empty.className = "small";
+    empty.textContent = "Keine Bildreferenz vorhanden.";
+    wrap.appendChild(empty);
+  } else {
+    const list = document.createElement("div");
+    list.className = "imageRefList";
+
+    files.forEach((fileBase, idx) => {
+      const row = document.createElement("div");
+      row.className = "imageRefRow";
+
+      const name = document.createElement("code");
+      name.textContent = fileBase;
+
+      const del = document.createElement("button");
+      del.className = "btn danger";
+      del.type = "button";
+      del.textContent = "Entfernen";
+      del.addEventListener("click", () => {
+        const removed = question.imageFiles.splice(idx, 1)[0];
+        removeLocalImage(removed);
+        state.dirty = true;
+        renderAll();
+      });
+
+      row.appendChild(name);
+      row.appendChild(del);
+      list.appendChild(row);
+    });
+    wrap.appendChild(list);
+  }
+
+  const fileInput = document.createElement("input");
+  fileInput.type = "file";
+  fileInput.accept = "image/png,image/jpeg,image/webp,image/gif";
+  fileInput.multiple = true;
+  fileInput.hidden = true;
+
+  fileInput.addEventListener("change", () => {
+    const filesToAdd = Array.from(fileInput.files || []);
+    if (!filesToAdd.length) return;
+
+    if (!Array.isArray(question.imageFiles)) question.imageFiles = [];
+
+    for (const file of filesToAdd) {
+      const imageId = registerLocalImage(file);
+      if (imageId && !question.imageFiles.includes(imageId)) {
+        question.imageFiles.push(imageId);
+      }
+    }
+
+    fileInput.value = "";
+    state.dirty = true;
+    renderAll();
+  });
+
+  const addImageBtn = document.createElement("button");
+  addImageBtn.className = "btn";
+  addImageBtn.type = "button";
+  addImageBtn.textContent = "Bild hinzufügen";
+  addImageBtn.addEventListener("click", () => fileInput.click());
+
+  wrap.appendChild(addImageBtn);
+  wrap.appendChild(fileInput);
+  return wrap;
+}
+
 export async function renderMain() {
   setHeader();
   const list = $("questionList");
@@ -118,7 +197,10 @@ export async function renderMain() {
       const inp = document.createElement(type === "textarea" ? "textarea" : "input");
       if (type !== "textarea") inp.type = "text";
       inp.value = value || "";
-      inp.addEventListener("input", () => { onChange(inp.value); state.dirty = true; });
+      inp.addEventListener("input", () => {
+        onChange(inp.value);
+        state.dirty = true;
+      });
 
       wrap.appendChild(ttl);
       wrap.appendChild(inp);
@@ -181,8 +263,9 @@ export async function renderMain() {
 
     card.appendChild(ansWrap);
     card.appendChild(addAnswerBtn);
+    card.appendChild(createImageEditor(q));
 
-    if ((q.imageFiles || []).length && state.zip) {
+    if ((q.imageFiles || []).length) {
       const imgRow = document.createElement("div");
       imgRow.className = "imgrow";
       for (const fb of q.imageFiles) {

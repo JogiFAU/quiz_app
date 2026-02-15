@@ -1,7 +1,7 @@
 import { $, toast } from "../utils.js";
 import { state, resetEditorState } from "../state.js";
 import { loadJsonFiles, syncQuestionToSource, buildDatasetExports } from "../data/loaders.js";
-import { loadZipFile } from "../data/zipImages.js";
+import { clearLocalImageObjectUrls, loadZipFile } from "../data/zipImages.js";
 import { filterByExams, filterByImageMode, searchQuestions } from "../quiz/filters.js";
 import { renderAll, updateExamLists } from "./render.js";
 
@@ -88,6 +88,7 @@ async function loadDatasetFromFiles(jsonFiles, zipFile = null) {
   }
 
   try {
+    clearLocalImageObjectUrls();
     await loadJsonFiles(jsonFiles);
     await loadZipFile(zipFile);
 

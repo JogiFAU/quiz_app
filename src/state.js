@@ -8,6 +8,7 @@ export const state = {
   zip: null,
   zipIndex: new Map(),
   zipObjectUrls: new Map(),
+  localImageUrls: new Map(),
 
   // View / workflow
   view: "config", // "config" | "search"

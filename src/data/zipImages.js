@@ -7,6 +7,42 @@ export function clearZipObjectUrls() {
   state.zipObjectUrls = new Map();
 }
 
+export function clearLocalImageObjectUrls() {
+  for (const url of state.localImageUrls.values()) {
+    try { URL.revokeObjectURL(url); } catch {}
+  }
+  state.localImageUrls = new Map();
+}
+
+function imageBaseName(filename) {
+  const cleaned = String(filename || "").trim();
+  return cleaned.replace(/\.[^.]+$/, "");
+}
+
+export function registerLocalImage(file) {
+  if (!file) return null;
+
+  const base = imageBaseName(file.name) || `bild_${Date.now()}`;
+  let candidate = base;
+  let idx = 2;
+
+  while (state.localImageUrls.has(candidate)) {
+    candidate = `${base}_${idx}`;
+    idx += 1;
+  }
+
+  const url = URL.createObjectURL(file);
+  state.localImageUrls.set(candidate, url);
+  return candidate;
+}
+
+export function removeLocalImage(fileBase) {
+  if (!state.localImageUrls.has(fileBase)) return;
+  const url = state.localImageUrls.get(fileBase);
+  try { URL.revokeObjectURL(url); } catch {}
+  state.localImageUrls.delete(fileBase);
+}
+
 function requireJSZip() {
   if (typeof window.JSZip === "undefined") {
     throw new Error("JSZip ist nicht verfügbar (CDN blockiert?). Bilder-ZIP kann nicht geladen werden.");
@@ -54,6 +90,10 @@ export async function loadZipFile(file) {
 }
 
 export async function getImageUrl(fileBase) {
+  if (state.localImageUrls.has(fileBase)) {
+    return state.localImageUrls.get(fileBase);
+  }
+
   if (!state.zip || !state.zipIndex.has(fileBase)) return null;
   if (state.zipObjectUrls.has(fileBase)) return state.zipObjectUrls.get(fileBase);
 
