@@ -334,6 +334,15 @@ summary { cursor: pointer; color: var(--muted); }
 .examseg.bad { background: rgba(198,40,40,.9); }
 .examseg.neu { background: rgba(96,125,139,.9); }
 .exampct { font-size: 12px; color: var(--muted); font-weight: 800; }
+.topicitem {
+  grid-template-columns: 20px 1fr;
+}
+.topicitem--sub {
+  padding-left: 28px;
+}
+.topicitem input {
+  margin: 0;
+}
 
 /* TOC */
 .toc {
