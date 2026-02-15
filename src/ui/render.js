@@ -25,15 +25,16 @@ function setHeader() {
   bar.style.width = total ? `${(shown / total) * 100}%` : "0%";
 }
 
-export function updateExamLists() {
+export function updateExamLists(selectedExams = []) {
   const exams = Array.from(new Set(state.questionsAll.map((q) => q.examName).filter(Boolean))).sort();
-  renderExamList("examListSearch", exams);
+  renderExamList("examListSearch", exams, selectedExams);
 }
 
-function renderExamList(containerId, exams) {
+function renderExamList(containerId, exams, selectedExams = []) {
   const el = $(containerId);
   if (!el) return;
   el.innerHTML = "";
+  const selected = new Set(selectedExams || []);
 
   for (const exam of exams) {
     const item = document.createElement("label");
@@ -42,7 +43,7 @@ function renderExamList(containerId, exams) {
     const cb = document.createElement("input");
     cb.type = "checkbox";
     cb.dataset.exam = exam;
-    cb.checked = true;
+    cb.checked = selected.has(exam);
 
     const name = document.createElement("div");
     name.className = "examname";

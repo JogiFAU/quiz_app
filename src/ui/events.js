@@ -13,6 +13,15 @@ function selectedExamsFromList() {
     .filter(Boolean);
 }
 
+function defaultSearchConfig() {
+  return {
+    exams: [],
+    imageFilter: "all",
+    query: "",
+    inAnswers: false,
+  };
+}
+
 function buildSearchConfigFromUi() {
   return {
     exams: selectedExamsFromList(),
@@ -20,6 +29,20 @@ function buildSearchConfigFromUi() {
     query: $("searchText").value,
     inAnswers: $("searchInAnswers").checked,
   };
+}
+
+function applySearchConfigToUi(config) {
+  const cfg = config || defaultSearchConfig();
+  $("imageFilterSearch").value = cfg.imageFilter || "all";
+  $("searchText").value = cfg.query || "";
+  $("searchInAnswers").checked = !!cfg.inAnswers;
+
+  const selected = new Set(cfg.exams || []);
+  const list = $("examListSearch");
+  if (!list) return;
+  list.querySelectorAll("input[type=checkbox][data-exam]").forEach((cb) => {
+    cb.checked = selected.has(cb.dataset.exam);
+  });
 }
 
 function computeSearchSubset(config) {
@@ -73,6 +96,51 @@ function syncAllQuestions() {
   for (const q of state.questionsAll) syncQuestionToSource(q);
 }
 
+function captureUiSnapshot() {
+  return {
+    searchConfig: buildSearchConfigFromUi(),
+    view: state.view,
+    pageSize: $("pageSize").value,
+    pageNumber: $("pageNumber").value,
+  };
+}
+
+function applySnapshotAfterReload(snapshot) {
+  if (!snapshot) return;
+
+  applySearchConfigToUi(snapshot.searchConfig);
+  $("pageSize").value = snapshot.pageSize || "50";
+  $("pageNumber").value = snapshot.pageNumber || "1";
+
+  state.searchConfig = snapshot.searchConfig;
+  if (snapshot.view === "search") {
+    state.view = "search";
+    state.searchOrder = computeSearchSubset(snapshot.searchConfig).map((q) => q.id);
+  }
+}
+
+async function reloadCurrentDatasetPreservingUi(snapshot) {
+  if (!state.activeDataset?.directoryHandle || !state.activeDataset?.exportJsonHandle) return;
+
+  const exportJsonFile = await state.activeDataset.exportJsonHandle.getFile();
+  let zipFile = null;
+  if (state.activeDataset.zipHandle) {
+    zipFile = await state.activeDataset.zipHandle.getFile();
+  }
+
+  await loadFromResolvedFiles({
+    exportJsonFile,
+    zipFile,
+    folderName: state.activeDataset.label || state.activeDataset.directoryHandle.name || "Ordner",
+    handles: {
+      directoryHandle: state.activeDataset.directoryHandle,
+      exportJsonHandle: state.activeDataset.exportJsonHandle,
+      zipHandle: state.activeDataset.zipHandle,
+    },
+    uiSnapshot: snapshot,
+  });
+}
+
 async function saveAsOriginalDownload() {
   syncAllQuestions();
   const exports = buildDatasetExports();
@@ -81,6 +149,8 @@ async function saveAsOriginalDownload() {
   if (state.activeDataset?.directoryHandle && state.activeDataset?.exportJsonHandle) {
     const payload = exports[0]?.payload || { questions: [] };
     const jsonBlob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const uiSnapshot = captureUiSnapshot();
+
     await writeBlobToHandle(state.activeDataset.exportJsonHandle, jsonBlob);
 
     let zipHandle = state.activeDataset.zipHandle;
@@ -91,9 +161,10 @@ async function saveAsOriginalDownload() {
     }
     await writeBlobToHandle(zipHandle, zipBlob);
 
+    await reloadCurrentDatasetPreservingUi(uiSnapshot);
     state.dirty = false;
     await renderAll();
-    toast("Datensatz im gewählten Ordner aktualisiert.");
+    toast("Datensatz gespeichert und neu geladen.");
     return;
   }
 
@@ -138,7 +209,7 @@ function getFolderNameFromEntry(file) {
   return seg.length > 1 ? seg[0] : "Ordner";
 }
 
-async function loadFromResolvedFiles({ exportJsonFile, zipFile, folderName, handles = null }) {
+async function loadFromResolvedFiles({ exportJsonFile, zipFile, folderName, handles = null, uiSnapshot = null }) {
   clearLocalImageObjectUrls();
   await loadJsonFiles([exportJsonFile]);
   await loadZipFile(zipFile);
@@ -151,9 +222,16 @@ async function loadFromResolvedFiles({ exportJsonFile, zipFile, folderName, hand
     exportJsonHandle: handles?.exportJsonHandle || null,
     zipHandle: handles?.zipHandle || null,
   };
+
   resetEditorState();
-  updateExamLists();
+  const startConfig = uiSnapshot?.searchConfig || defaultSearchConfig();
+  state.searchConfig = startConfig;
+
   resetSearchConfig();
+  updateExamLists(startConfig.exams || []);
+  applySearchConfigToUi(startConfig);
+  applySnapshotAfterReload(uiSnapshot);
+
   await renderAll();
 
   const fileHint = $("loadedFileHint");
@@ -279,6 +357,8 @@ export function wireUiEvents() {
 
   $("resetConfigSearchBtn").addEventListener("click", async () => {
     resetSearchConfig();
+    state.searchConfig = defaultSearchConfig();
+    updateExamLists([]);
     if (state.activeDataset) {
       state.view = "config";
       state.searchOrder = [];
@@ -310,6 +390,7 @@ export function wireUiEvents() {
     el.addEventListener(el.tagName === "INPUT" ? "input" : "change", async () => {
       if (state.view === "search") {
         const cfg = buildSearchConfigFromUi();
+        state.searchConfig = cfg;
         state.searchOrder = computeSearchSubset(cfg).map((q) => q.id);
       }
       await renderAll();
@@ -319,6 +400,7 @@ export function wireUiEvents() {
   $("examListSearch").addEventListener("change", async () => {
     if (state.view === "search") {
       const cfg = buildSearchConfigFromUi();
+      state.searchConfig = cfg;
       state.searchOrder = computeSearchSubset(cfg).map((q) => q.id);
     }
     await renderAll();
