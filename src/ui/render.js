@@ -300,17 +300,12 @@ function createTopicSuggestionList(input, wrap, getOptions, onPick) {
     dropdown.hidden = false;
   };
 
-  input.addEventListener("focus", show);
-  input.addEventListener("input", show);
-  input.addEventListener("blur", () => {
-    window.setTimeout(hide, 150);
-  });
-
   return { show, hide };
 }
 
 function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTopicInput, subTopicWrap) {
   const pickedFromDropdown = new WeakSet();
+  let activeInput = null;
 
   const refreshSuper = () => {
     const { over } = updateTopicHints(question, superTopicInput, subTopicInput);
@@ -366,6 +361,18 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
     return !hasInvalid;
   };
 
+  superTopicInput.addEventListener("focus", () => {
+    activeInput = superTopicInput;
+    superSuggestions.show();
+    subSuggestions.hide();
+  });
+
+  subTopicInput.addEventListener("focus", () => {
+    activeInput = subTopicInput;
+    subSuggestions.show();
+    superSuggestions.hide();
+  });
+
   superTopicInput.addEventListener("input", () => {
     if (pickedFromDropdown.has(superTopicInput)) {
       pickedFromDropdown.delete(superTopicInput);
@@ -374,10 +381,12 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
       superTopicInput.blur();
       return;
     }
+    activeInput = superTopicInput;
     setInvalidState(superTopicInput, false);
     superSuggestions.show();
-    subSuggestions.show();
+    subSuggestions.hide();
   });
+
   subTopicInput.addEventListener("input", () => {
     if (pickedFromDropdown.has(subTopicInput)) {
       pickedFromDropdown.delete(subTopicInput);
@@ -386,19 +395,30 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
       subTopicInput.blur();
       return;
     }
+    activeInput = subTopicInput;
     setInvalidState(subTopicInput, false);
     subSuggestions.show();
+    superSuggestions.hide();
   });
 
   superTopicInput.addEventListener("blur", () => {
     validateTopics();
-    superSuggestions.hide();
-    subSuggestions.hide();
+    activeInput = null;
+    window.setTimeout(() => {
+      if (activeInput) return;
+      superSuggestions.hide();
+      subSuggestions.hide();
+    }, 120);
   });
+
   subTopicInput.addEventListener("blur", () => {
     validateTopics();
-    superSuggestions.hide();
-    subSuggestions.hide();
+    activeInput = null;
+    window.setTimeout(() => {
+      if (activeInput) return;
+      superSuggestions.hide();
+      subSuggestions.hide();
+    }, 120);
   });
 
   const applyAndDispatch = (input, value) => {
