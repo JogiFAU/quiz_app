@@ -320,12 +320,26 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
     return filterTopicOptions(under, subTopicInput.value);
   };
 
+  const setInvalidState = (input, invalid) => {
+    input.classList.toggle("editorInputInvalid", !!invalid);
+  };
+
   const validateTopics = () => {
     if (!state.topicCatalog) return;
     const { over, under } = updateTopicHints(question, superTopicInput, subTopicInput);
     if (!over.length) return;
+
+    let hasInvalid = false;
     const normalizedSuper = normalizeTopicValue(superTopicInput.value, over);
-    if (normalizedSuper !== superTopicInput.value) {
+    const superRaw = String(superTopicInput.value || "").trim();
+    if (superRaw && !normalizedSuper) {
+      hasInvalid = true;
+      setInvalidState(superTopicInput, true);
+    } else {
+      setInvalidState(superTopicInput, false);
+    }
+
+    if (normalizedSuper && normalizedSuper !== superTopicInput.value) {
       superTopicInput.value = normalizedSuper;
       superTopicInput.dispatchEvent(new Event("input", { bubbles: true }));
     }
@@ -334,28 +348,41 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
       ? state.topicCatalog.subTopicsBySuper[normalizedSuper]
       : under;
     const normalizedSub = normalizeTopicValue(subTopicInput.value, relevantUnder);
-    if (normalizedSub !== subTopicInput.value) {
+    const subRaw = String(subTopicInput.value || "").trim();
+    if (subRaw && !normalizedSub) {
+      hasInvalid = true;
+      setInvalidState(subTopicInput, true);
+    } else {
+      setInvalidState(subTopicInput, false);
+    }
+
+    if (normalizedSub && normalizedSub !== subTopicInput.value) {
       subTopicInput.value = normalizedSub;
       subTopicInput.dispatchEvent(new Event("input", { bubbles: true }));
     }
+
+    return !hasInvalid;
   };
 
   superTopicInput.addEventListener("input", () => {
+    setInvalidState(superTopicInput, false);
     superSuggestions.show();
     subSuggestions.show();
   });
   subTopicInput.addEventListener("input", () => {
+    setInvalidState(subTopicInput, false);
     subSuggestions.show();
   });
 
   superTopicInput.addEventListener("blur", () => {
     validateTopics();
-    superSuggestions.show();
-    subSuggestions.show();
+    superSuggestions.hide();
+    subSuggestions.hide();
   });
   subTopicInput.addEventListener("blur", () => {
     validateTopics();
-    subSuggestions.show();
+    superSuggestions.hide();
+    subSuggestions.hide();
   });
 
   const applyAndDispatch = (input, value) => {

@@ -598,6 +598,11 @@ textarea {
   margin-top: 8px;
 }
 
+.editorField input.editorInputInvalid {
+  border-color: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239,68,68,.2);
+}
+
 .editorTopicDropdown {
   margin-top: 6px;
   border: 1px solid #4c5563;
