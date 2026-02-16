@@ -321,7 +321,9 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
   };
 
   const validateTopics = () => {
+    if (!state.topicCatalog) return;
     const { over, under } = updateTopicHints(question, superTopicInput, subTopicInput);
+    if (!over.length) return;
     const normalizedSuper = normalizeTopicValue(superTopicInput.value, over);
     if (normalizedSuper !== superTopicInput.value) {
       superTopicInput.value = normalizedSuper;

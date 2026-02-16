@@ -468,15 +468,36 @@ function parseTopicTree(raw) {
     if (explicitSub && superName) {
       pushNode(superName, explicitSub);
     }
+
+    const canInterpretAsMap = !name && !firstArray && !explicitSub;
+    if (canInterpretAsMap) {
+      Object.entries(node).forEach(([key, value]) => {
+        const superFromMap = String(key || "").trim();
+        if (!superFromMap) return;
+
+        if (Array.isArray(value)) {
+          pushNode(superFromMap);
+          value.forEach((entry) => walk(entry, superFromMap));
+          return;
+        }
+
+        if (typeof value === "string") {
+          pushNode(superFromMap, value);
+          return;
+        }
+
+        if (value && typeof value === "object") {
+          pushNode(superFromMap);
+          walk(value, superFromMap);
+        }
+      });
+    }
   };
 
-  const roots = Array.isArray(getObjectValueByKeys(source, [
+  const rootCandidate = getObjectValueByKeys(source, [
     "superTopics", "super_topics", "topics", "themen", "topicTree", "topic_tree",
-  ]))
-    ? getObjectValueByKeys(source, [
-      "superTopics", "super_topics", "topics", "themen", "topicTree", "topic_tree",
-    ])
-    : source;
+  ]);
+  const roots = rootCandidate ?? source;
   walk(roots, "");
 
   return {
