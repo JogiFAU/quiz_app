@@ -310,6 +310,8 @@ function createTopicSuggestionList(input, wrap, getOptions, onPick) {
 }
 
 function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTopicInput, subTopicWrap) {
+  const pickedFromDropdown = new WeakSet();
+
   const refreshSuper = () => {
     const { over } = updateTopicHints(question, superTopicInput, subTopicInput);
     return filterTopicOptions(over, superTopicInput.value);
@@ -365,11 +367,25 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
   };
 
   superTopicInput.addEventListener("input", () => {
+    if (pickedFromDropdown.has(superTopicInput)) {
+      pickedFromDropdown.delete(superTopicInput);
+      superSuggestions.hide();
+      subSuggestions.hide();
+      superTopicInput.blur();
+      return;
+    }
     setInvalidState(superTopicInput, false);
     superSuggestions.show();
     subSuggestions.show();
   });
   subTopicInput.addEventListener("input", () => {
+    if (pickedFromDropdown.has(subTopicInput)) {
+      pickedFromDropdown.delete(subTopicInput);
+      superSuggestions.hide();
+      subSuggestions.hide();
+      subTopicInput.blur();
+      return;
+    }
     setInvalidState(subTopicInput, false);
     subSuggestions.show();
   });
@@ -386,6 +402,7 @@ function bindTopicAutocomplete(question, superTopicInput, superTopicWrap, subTop
   });
 
   const applyAndDispatch = (input, value) => {
+    pickedFromDropdown.add(input);
     input.value = value;
     input.dispatchEvent(new Event("input", { bubbles: true }));
   };
