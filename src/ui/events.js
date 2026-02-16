@@ -180,11 +180,16 @@ function revealManualFallback() {
   }
 }
 
-function openManualFolderPicker() {
+let pendingManualLoadFromPrimary = false;
+
+function openManualFolderPicker({ autoLoad = false } = {}) {
   const folderInput = $("datasetFolderInput");
-  if (folderInput instanceof HTMLInputElement) {
+  if (!(folderInput instanceof HTMLInputElement)) return;
+
+  pendingManualLoadFromPrimary = autoLoad;
+  requestAnimationFrame(() => {
     folderInput.click();
-  }
+  });
 }
 
 function downloadJson(payload, filename) {
@@ -605,7 +610,8 @@ async function pickAndLoadDirectoryLive() {
   if (!hasFileSystemAccessApi()) {
     revealManualFallback();
     toast("Live-Ordnerzugriff nicht verfügbar – Fallback ohne Schreibzugriff geöffnet.");
-    openManualFolderPicker();
+    alert("Dieser Browser unterstützt keinen Ordnerzugriff mit Schreibrechten. Es wird der Fallback-Dialog geöffnet.");
+    openManualFolderPicker({ autoLoad: true });
     return;
   }
 
@@ -645,8 +651,9 @@ async function pickAndLoadDirectoryLive() {
   } catch (e) {
     if (e?.name === "AbortError") return;
     revealManualFallback();
-    toast("Live-Laden fehlgeschlagen – bitte Fallback ohne Schreibzugriff nutzen.");
-    alert("Fehler beim Live-Laden des Ordners: " + e);
+    toast("Live-Laden fehlgeschlagen – Fallback ohne Schreibzugriff wird geöffnet.");
+    alert("Fehler beim Live-Laden des Ordners. Es wird auf den Fallback gewechselt.\n\nDetails: " + e);
+    openManualFolderPicker({ autoLoad: true });
   }
 }
 
@@ -690,7 +697,15 @@ export function wireUiEvents() {
     fileHint.textContent = `Ausgewählt: Ordner „${folderName}“ mit ${exportJson.name}${zipHint}`;
   };
 
-  folderInput.addEventListener("change", updateSelectedFileHint);
+  folderInput.addEventListener("change", async () => {
+    updateSelectedFileHint();
+
+    if (!pendingManualLoadFromPrimary) return;
+    pendingManualLoadFromPrimary = false;
+
+    const folderFiles = Array.from(folderInput.files || []);
+    await loadDatasetFromDirectoryFiles(folderFiles);
+  });
 
   $("loadFilesBtn").addEventListener("click", async () => {
     const folderFiles = Array.from(folderInput.files || []);
