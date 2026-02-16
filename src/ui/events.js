@@ -170,7 +170,38 @@ function baseFilenameFromUrl(url) {
 }
 
 function hasFileSystemAccessApi() {
-  return typeof window.showDirectoryPicker === "function";
+  return typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
+}
+
+function revealManualFallback() {
+  const fallbackDetails = $('manualLoadFallback');
+  if (fallbackDetails instanceof HTMLDetailsElement) {
+    fallbackDetails.open = true;
+  }
+}
+
+function openTemporaryDirectoryPickerAndLoad() {
+  const input = document.createElement("input");
+  input.type = "file";
+  input.multiple = true;
+  input.setAttribute("webkitdirectory", "");
+  input.setAttribute("directory", "");
+  input.style.position = "fixed";
+  input.style.left = "-9999px";
+  input.style.top = "0";
+
+  const cleanup = () => input.remove();
+
+  input.addEventListener("change", async () => {
+    const files = Array.from(input.files || []);
+    cleanup();
+    if (!files.length) return;
+    await loadDatasetFromDirectoryFiles(files);
+  }, { once: true });
+
+  document.body.appendChild(input);
+  input.click();
+  return true;
 }
 
 function downloadJson(payload, filename) {
@@ -435,42 +466,6 @@ async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
   return null;
 }
 
-function findTopicTreeFile(directoryFiles) {
-  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
-  const files = directoryFiles || [];
-  const byLower = new Map(files.map((f) => [String(f.name || "").toLowerCase(), f]));
-  for (const candidate of candidates) {
-    const match = byLower.get(candidate.toLowerCase());
-    if (match) return match;
-  }
-  return files.find((file) => /topic[-_]?tree.*\.json$/i.test(String(file?.name || ""))) || null;
-}
-
-async function getTopicTreeFileFromDirectoryHandle(directoryHandle) {
-  const candidates = ["topic-tree.json", "topic_tree.json", "topicTree.json"];
-  for (const candidate of candidates) {
-    try {
-      const handle = await directoryHandle.getFileHandle(candidate);
-      const file = await handle.getFile();
-      return file;
-    } catch {
-      // try next candidate
-    }
-  }
-
-  try {
-    for await (const handle of directoryHandle.values()) {
-      if (handle.kind === "file" && /topic[-_]?tree.*\.json$/i.test(handle.name)) {
-        return await handle.getFile();
-      }
-    }
-  } catch {
-    // browser might not support iteration
-  }
-
-  return null;
-}
-
 function replaceAcrossQuestion(question, searchText, replaceText) {
   const apply = (value) => String(value || "").split(searchText).join(replaceText);
   let touched = false;
@@ -589,12 +584,33 @@ async function loadDatasetFromDirectoryFiles(directoryFiles) {
 
 async function pickAndLoadDirectoryLive() {
   if (!hasFileSystemAccessApi()) {
-    alert("Live-Bearbeitung ist in diesem Browser nicht verfügbar. Bitte den normalen Ordner-Import nutzen.");
+    revealManualFallback();
+    toast("Live-Ordnerzugriff nicht verfügbar – Fallback ohne Schreibzugriff geöffnet.");
+    alert("Dieser Browser unterstützt keinen Ordnerzugriff mit Schreibrechten. Es wird der Fallback-Dialog geöffnet.");
+    const opened = openTemporaryDirectoryPickerAndLoad();
+    if (!opened) {
+      alert("Fallback-Dateiauswahl konnte nicht geöffnet werden. Bitte im Bereich 'Alternative ohne Schreibzugriff' den Ordner manuell wählen.");
+    }
     return;
   }
 
   try {
-    const directoryHandle = await window.showDirectoryPicker({ mode: "readwrite" });
+    const directoryHandle = await window.showDirectoryPicker();
+
+    let readWriteGranted = false;
+    if (typeof directoryHandle.requestPermission === "function") {
+      try {
+        const permission = await directoryHandle.requestPermission({ mode: "readwrite" });
+        readWriteGranted = permission === "granted";
+      } catch {
+        readWriteGranted = false;
+      }
+    }
+
+    if (!readWriteGranted) {
+      toast("Ordner ohne Schreibfreigabe geöffnet. Speichern erfolgt ggf. per Download.");
+    }
+
     const exportJsonHandle = await directoryHandle.getFileHandle("export.json");
     const exportJsonFile = await exportJsonHandle.getFile();
 
@@ -620,8 +636,13 @@ async function pickAndLoadDirectoryLive() {
 
     toast("Ordner mit Schreibzugriff geladen (Live-Speichern aktiv).");
   } catch (e) {
-    if (e?.name === "AbortError") return;
-    alert("Fehler beim Live-Laden des Ordners: " + e);
+    if (e?.name === "AbortError") {
+      toast("Ordnerauswahl abgebrochen.");
+      return;
+    }
+    revealManualFallback();
+    toast("Live-Laden fehlgeschlagen – bitte Fallback ohne Schreibzugriff nutzen.");
+    alert("Fehler beim Live-Laden des Ordners. Bitte unten den Fallback 'Alternative ohne Schreibzugriff' verwenden.\n\nDetails: " + e);
   }
 }
 
@@ -631,7 +652,13 @@ export function wireUiEvents() {
   const pickFolderBtn = $("pickFolderBtn");
 
   if (pickFolderBtn) {
-    pickFolderBtn.hidden = !hasFileSystemAccessApi();
+    const supportsLive = hasFileSystemAccessApi();
+    pickFolderBtn.title = supportsLive
+      ? ""
+      : "Dieser Browser unterstützt keinen Ordnerzugriff mit Schreibrechten. Nutze die Fallback-Alternative darunter.";
+
+    if (!supportsLive) revealManualFallback();
+
     pickFolderBtn.addEventListener("click", async () => {
       await pickAndLoadDirectoryLive();
     });
