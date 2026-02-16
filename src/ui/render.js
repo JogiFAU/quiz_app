@@ -413,7 +413,7 @@ export async function renderMain() {
     const topicConf = formatConfidence(q.topicConfidence);
     const answerConf = formatConfidence(q.answerConfidence);
 
-    h.innerHTML = `<div><strong>ID:</strong> ${q.id}</div>`;
+    h.innerHTML = `<div class="qhead__id"><strong>ID:</strong> ${q.id}</div>`;
     card.appendChild(h);
 
     const reviewWrap = document.createElement("label");
@@ -452,8 +452,15 @@ export async function renderMain() {
       return { wrap, input: inp };
     };
 
+    const addSectionTitle = (title) => {
+      const sectionTitle = document.createElement("div");
+      sectionTitle.className = "editorSectionTitle";
+      sectionTitle.textContent = title;
+      card.appendChild(sectionTitle);
+    };
+
+    addSectionTitle("Metadaten");
     addField("Klausur", q.examName, (v) => q.examName = v);
-    addField("Jahr", q.examYear, (v) => q.examYear = v);
 
     const superTopicField = addField("Überthema", q.superTopic, (v) => {
       q.superTopic = v;
@@ -480,9 +487,11 @@ export async function renderMain() {
     topicReason.innerHTML = `<strong>AI-Begründung Topic:</strong> ${q.topicReason || "—"}`;
     card.appendChild(topicReason);
 
+    addSectionTitle("Frageninhalt");
     addField("Frage", q.text, (v) => q.text = v, "textarea");
     addField("Erklärung", q.explanation, (v) => q.explanation = v, "textarea");
 
+    addSectionTitle("Antwortmöglichkeiten");
     const ansWrap = document.createElement("div");
     ansWrap.className = "opts";
 
