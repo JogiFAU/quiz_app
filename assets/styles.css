@@ -615,6 +615,10 @@ textarea {
   box-shadow: 0 8px 20px rgba(0,0,0,.35);
 }
 
+.editorTopicDropdown[hidden] {
+  display: none !important;
+}
+
 .editorTopicDropdown__item {
   border: 0;
   border-bottom: 1px solid rgba(255,255,255,.08);

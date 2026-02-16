@@ -273,6 +273,7 @@ function createTopicSuggestionList(input, wrap, getOptions, onPick) {
   wrap.appendChild(dropdown);
 
   const hide = () => {
+    dropdown.classList.remove("is-open");
     dropdown.hidden = true;
   };
 
@@ -298,6 +299,7 @@ function createTopicSuggestionList(input, wrap, getOptions, onPick) {
     });
 
     dropdown.hidden = false;
+    dropdown.classList.add("is-open");
   };
 
   return { show, hide };
