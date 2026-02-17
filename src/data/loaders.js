@@ -1,5 +1,6 @@
 import { normSpace } from "../utils.js";
 import { state } from "../state.js";
+import { resolveAiDisplayText, resolveMaintenanceDisplayText } from "../rules/questionPresentationRules.js";
 
 function pickFirstKey(keys, preferred = [], matcher = null) {
   for (const key of preferred) {
@@ -92,9 +93,9 @@ function extractAiInfo(q) {
   const activePass = passB || passA || null;
 
   return {
-    topicReason: normSpace(topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
+    topicReason: normSpace(resolveAiDisplayText(q, "topicReason") || topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
     topicSource: String(topicFinal?.source || ""),
-    answerReason: normSpace(activePass?.reasonShort || ""),
+    answerReason: normSpace(resolveAiDisplayText(q, "solutionHint") || activePass?.reasonShort || ""),
     answerSource: passB ? "passB" : (passA ? "passA" : ""),
   };
 }
@@ -112,6 +113,7 @@ function normalizeQuestion(q, fileIndex) {
   const topicConfidence = extractTopicConfidence(q);
   const { answerConfidence, recommendChange, needsMaintenance } = extractAnswerConfidenceAndFlags(q);
   const { topicReason, topicSource, answerReason, answerSource } = extractAiInfo(q);
+  const needsReview = !!(maintenanceKey ? q[maintenanceKey] : false);
 
   return {
     id,
@@ -126,7 +128,7 @@ function normalizeQuestion(q, fileIndex) {
     topic,
     superTopic: normSpace((superTopicKey ? q[superTopicKey] : "") || legacySplit.superTopic),
     subTopic: normSpace((subTopicKey ? q[subTopicKey] : "") || legacySplit.subTopic),
-    needsReview: !!(maintenanceKey ? q[maintenanceKey] : false),
+    needsReview,
     topicConfidence,
     answerConfidence,
     recommendChange,
@@ -135,6 +137,9 @@ function normalizeQuestion(q, fileIndex) {
     topicSource,
     answerReason,
     answerSource,
+    finalMaintenanceAssessment: resolveMaintenanceDisplayText(q, needsReview || needsMaintenance),
+    manualEdited: !!(q.manualEdited || q?.annotations?.manualEdited || (Array.isArray(q.tags) && q.tags.includes("manualEdited"))),
+    manualTopicEdited: false,
     text: normSpace(q.questionText || q.text || ""),
     explanation: normSpace(q.explanationText || q.explanation || ""),
     answers: (q.answers || []).map((a, idx) => ({
@@ -175,6 +180,18 @@ export function syncQuestionToSource(question) {
   const maintenanceKey = question.maintenanceKey || "needsReview";
   raw[maintenanceKey] = !!question.needsReview;
 
+  if (normSpace(question.finalMaintenanceAssessment || "")) {
+    raw.Maintanance_manualOverride = normSpace(question.finalMaintenanceAssessment);
+  }
+  if (normSpace(question.answerReason || "")) {
+    raw.ExplanationAnswer_manualOverride = normSpace(question.answerReason);
+  }
+  if (normSpace(question.topicReason || "")) {
+    raw.ExplanationTopic_manualOverride = normSpace(question.topicReason);
+  } else if (question.manualTopicEdited) {
+    raw.ExplanationTopic_manualOverride = "manualOverride";
+  }
+
   raw.answers = (question.answers || []).map((a, idx) => ({
     ...(raw.answers?.[idx] || {}),
     id: a.id || raw.answers?.[idx]?.id || `ans_${question.id}_${idx}`,
@@ -197,6 +214,13 @@ export function syncQuestionToSource(question) {
     text: raw.answers[idx]?.text || "",
     html: raw.answers[idx]?.html || "",
   }));
+
+  if (question.manualEdited) {
+    raw.manualEdited = true;
+    const tags = Array.isArray(raw.tags) ? raw.tags.slice() : [];
+    if (!tags.includes("manualEdited")) tags.push("manualEdited");
+    raw.tags = tags;
+  }
 }
 
 export async function loadJsonUrls(urls) {

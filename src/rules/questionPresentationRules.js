@@ -13,6 +13,20 @@ export function pickFirstNonEmptyString(source, paths = []) {
 }
 
 export const AI_DISPLAY_RULES = {
+  manualOverridePaths: {
+    solutionHint: [
+      "ExplanationAnswer_manualOverride",
+      "annotations.ExplanationAnswer_manualOverride"
+    ],
+    topicReason: [
+      "ExplanationTopic_manualOverride",
+      "annotations.ExplanationTopic_manualOverride"
+    ],
+    maintenance: [
+      "Maintanance_manualOverride",
+      "annotations.Maintanance_manualOverride"
+    ]
+  },
   solutionHintPaths: [
     "AnswerReasonDetailed",
     "answerReasonDetailed",
@@ -38,13 +52,26 @@ export const AI_DISPLAY_RULES = {
 };
 
 export function resolveAiDisplayText(question, type) {
+  const manualPaths = AI_DISPLAY_RULES.manualOverridePaths[type] || [];
+  const manualValue = pickFirstNonEmptyString(question, manualPaths);
+  if (manualValue) return manualValue;
+
   if (type === "solutionHint") {
     return pickFirstNonEmptyString(question, AI_DISPLAY_RULES.solutionHintPaths);
   }
   if (type === "topicReason") {
     return pickFirstNonEmptyString(question, AI_DISPLAY_RULES.topicReasonPaths);
   }
+  if (type === "maintenance") {
+    return null;
+  }
   return null;
+}
+
+export function resolveMaintenanceDisplayText(question, fallbackNeedsReview = false) {
+  const manualValue = pickFirstNonEmptyString(question, AI_DISPLAY_RULES.manualOverridePaths.maintenance);
+  if (manualValue) return manualValue;
+  return fallbackNeedsReview ? "Wartungsbedürftig" : "Unauffällig";
 }
 
 export function evaluateAiChangedLabel({ changedInDataset, originalCorrectIndices, finalCorrectIndices }) {
