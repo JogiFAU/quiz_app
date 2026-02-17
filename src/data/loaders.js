@@ -1,6 +1,12 @@
 import { normSpace } from "../utils.js";
 import { state } from "../state.js";
-import { resolveAiDisplayText, resolveMaintenanceDisplayText } from "../rules/questionPresentationRules.js";
+import {
+  AI_DISPLAY_RULES,
+  MAINTENANCE_TRAFFIC_RULES,
+  evaluateMaintenanceTrafficRules,
+  resolveMaintenanceDisplayText,
+  pickFirstNonEmptyString,
+} from "../rules/questionPresentationRules.js";
 
 function pickFirstKey(keys, preferred = [], matcher = null) {
   for (const key of preferred) {
@@ -84,6 +90,34 @@ function extractAnswerConfidenceAndFlags(q) {
   return { answerConfidence, recommendChange, needsMaintenance };
 }
 
+function toNumberOrNull(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+function buildMaintenanceTrafficFacts({ q, topicConfidence, answerConfidence, needsMaintenance }) {
+  const severity = toNumberOrNull(q?.aiAudit?.maintenance?.severity ?? q?.aiMaintenanceSeverity);
+  const reasonCount = Array.isArray(q?.aiAudit?.maintenance?.reasons)
+    ? q.aiAudit.maintenance.reasons.length
+    : (Array.isArray(q?.aiMaintenanceReasons) ? q.aiMaintenanceReasons.length : 0);
+  const thresholds = MAINTENANCE_TRAFFIC_RULES.thresholds;
+
+  const hardIssue = Boolean(
+    needsMaintenance
+    || (severity != null && severity >= thresholds.hardSeverityMin)
+  );
+
+  let softIssueCount = 0;
+  if (severity != null && severity >= thresholds.softSeverityMin) softIssueCount += 1;
+  if (reasonCount > 0) softIssueCount += 1;
+  if (answerConfidence != null && answerConfidence <= thresholds.lowConfidenceSoftMax) softIssueCount += 1;
+  if (topicConfidence != null && topicConfidence <= thresholds.lowConfidenceSoftMax) softIssueCount += 1;
+  if (answerConfidence != null && answerConfidence <= thresholds.lowConfidenceHardMax) softIssueCount += 1;
+  if ((q?.answers || []).length < thresholds.minAnswerOptions) softIssueCount += 1;
+
+  return { hardIssue, softIssueCount };
+}
+
 
 function extractAiInfo(q) {
   const topicFinal = q?.aiAudit?.topicFinal || null;
@@ -93,10 +127,36 @@ function extractAiInfo(q) {
   const activePass = passB || passA || null;
 
   return {
-    topicReason: normSpace(resolveAiDisplayText(q, "topicReason") || topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
+    topicReason: normSpace(pickFirstNonEmptyString(q, AI_DISPLAY_RULES.topicReasonPaths) || topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
     topicSource: String(topicFinal?.source || ""),
-    answerReason: normSpace(resolveAiDisplayText(q, "solutionHint") || activePass?.reasonShort || ""),
+    answerReason: normSpace(pickFirstNonEmptyString(q, AI_DISPLAY_RULES.solutionHintPaths) || activePass?.reasonShort || ""),
     answerSource: passB ? "passB" : (passA ? "passA" : ""),
+  };
+}
+
+function extractManualOverrides(q) {
+  const maintenanceOverride = pickFirstNonEmptyString(q, [
+    "Maintanance_manualOverride",
+    "annotations.Maintanance_manualOverride",
+  ]) || "";
+  const answerOverride = pickFirstNonEmptyString(q, [
+    "ExplanationAnswer_manualOverride",
+    "annotations.ExplanationAnswer_manualOverride",
+  ]) || "";
+  const topicOverride = pickFirstNonEmptyString(q, [
+    "ExplanationTopic_manualOverride",
+    "annotations.ExplanationTopic_manualOverride",
+  ]) || "";
+  const maintenanceExplanationOverride = pickFirstNonEmptyString(q, [
+    "MaintananceExplanation_manualOverride",
+    "annotations.MaintananceExplanation_manualOverride",
+  ]) || "";
+
+  return {
+    maintenanceOverride,
+    answerOverride,
+    topicOverride,
+    maintenanceExplanationOverride,
   };
 }
 
@@ -113,7 +173,17 @@ function normalizeQuestion(q, fileIndex) {
   const topicConfidence = extractTopicConfidence(q);
   const { answerConfidence, recommendChange, needsMaintenance } = extractAnswerConfidenceAndFlags(q);
   const { topicReason, topicSource, answerReason, answerSource } = extractAiInfo(q);
+  const {
+    maintenanceOverride,
+    answerOverride,
+    topicOverride,
+    maintenanceExplanationOverride,
+  } = extractManualOverrides(q);
   const needsReview = !!(maintenanceKey ? q[maintenanceKey] : false);
+
+  const maintenanceTraffic = evaluateMaintenanceTrafficRules(
+    buildMaintenanceTrafficFacts({ q, topicConfidence, answerConfidence, needsMaintenance }),
+  );
 
   return {
     id,
@@ -133,11 +203,23 @@ function normalizeQuestion(q, fileIndex) {
     answerConfidence,
     recommendChange,
     needsMaintenance,
-    topicReason,
+    topicReason: topicOverride,
+    currentTopicReason: topicOverride || topicReason,
+    currentTopicReasonSource: topicOverride ? "manualOverride" : (topicSource || "AI"),
     topicSource,
-    answerReason,
+    answerReason: answerOverride,
+    currentAnswerReason: answerOverride || answerReason,
+    currentAnswerReasonSource: answerOverride ? "manualOverride" : (answerSource || "AI"),
     answerSource,
-    finalMaintenanceAssessment: resolveMaintenanceDisplayText(q, needsReview || needsMaintenance),
+    finalMaintenanceAssessment: maintenanceOverride,
+    maintenanceExplanation: maintenanceExplanationOverride,
+    currentMaintenanceAssessment: maintenanceOverride || resolveMaintenanceDisplayText(q, needsReview || needsMaintenance),
+    currentMaintenanceSource: maintenanceOverride ? "manualOverride" : "automatisch",
+    maintenanceTrafficLevel: maintenanceTraffic.level,
+    maintenanceTrafficLabel: maintenanceTraffic.label,
+    hasManualMaintenanceOverride: !!maintenanceOverride,
+    hasManualAnswerOverride: !!answerOverride,
+    hasManualTopicOverride: !!topicOverride,
     manualEdited: !!(q.manualEdited || q?.annotations?.manualEdited || (Array.isArray(q.tags) && q.tags.includes("manualEdited"))),
     manualTopicEdited: false,
     text: normSpace(q.questionText || q.text || ""),
@@ -149,6 +231,23 @@ function normalizeQuestion(q, fileIndex) {
     })),
     imageFiles: Array.isArray(q.imageFiles) ? q.imageFiles.slice() : [],
   };
+}
+
+function ensureAnnotations(raw) {
+  if (!raw.annotations || typeof raw.annotations !== "object" || Array.isArray(raw.annotations)) {
+    raw.annotations = {};
+  }
+  return raw.annotations;
+}
+
+function setManualAnnotation(raw, key, value) {
+  const annotations = ensureAnnotations(raw);
+  if (value) {
+    annotations[key] = value;
+    raw[key] = value;
+  } else {
+    delete annotations[key];
+  }
 }
 
 export function syncQuestionToSource(question) {
@@ -180,16 +279,27 @@ export function syncQuestionToSource(question) {
   const maintenanceKey = question.maintenanceKey || "needsReview";
   raw[maintenanceKey] = !!question.needsReview;
 
-  if (normSpace(question.finalMaintenanceAssessment || "")) {
-    raw.Maintanance_manualOverride = normSpace(question.finalMaintenanceAssessment);
+  const maintenanceOverride = normSpace(question.finalMaintenanceAssessment || "");
+  const maintenanceExplanationOverride = normSpace(question.maintenanceExplanation || "");
+  const answerOverride = normSpace(question.answerReason || "");
+  const topicOverride = normSpace(question.topicReason || "");
+
+  if (question.hasManualMaintenanceOverride) {
+    setManualAnnotation(raw, "Maintanance_manualOverride", maintenanceOverride || null);
+    setManualAnnotation(raw, "MaintananceExplanation_manualOverride", maintenanceExplanationOverride || null);
   }
-  if (normSpace(question.answerReason || "")) {
-    raw.ExplanationAnswer_manualOverride = normSpace(question.answerReason);
+  if (question.hasManualAnswerOverride) {
+    setManualAnnotation(raw, "ExplanationAnswer_manualOverride", answerOverride || null);
   }
-  if (normSpace(question.topicReason || "")) {
-    raw.ExplanationTopic_manualOverride = normSpace(question.topicReason);
-  } else if (question.manualTopicEdited) {
-    raw.ExplanationTopic_manualOverride = "manualOverride";
+
+  if (question.hasManualTopicOverride) {
+    if (topicOverride) {
+      setManualAnnotation(raw, "ExplanationTopic_manualOverride", topicOverride);
+    } else if (question.manualTopicEdited) {
+      setManualAnnotation(raw, "ExplanationTopic_manualOverride", "manualOverride");
+    } else {
+      setManualAnnotation(raw, "ExplanationTopic_manualOverride", null);
+    }
   }
 
   raw.answers = (question.answers || []).map((a, idx) => ({
@@ -217,6 +327,8 @@ export function syncQuestionToSource(question) {
 
   if (question.manualEdited) {
     raw.manualEdited = true;
+    const annotations = ensureAnnotations(raw);
+    annotations.manualEdited = true;
     const tags = Array.isArray(raw.tags) ? raw.tags.slice() : [];
     if (!tags.includes("manualEdited")) tags.push("manualEdited");
     raw.tags = tags;

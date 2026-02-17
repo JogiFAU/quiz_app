@@ -583,6 +583,47 @@ textarea {
 }
 
 .editorField { margin-top: 10px; }
+.editorInfo {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(122,162,255,.2);
+  background: rgba(18,26,39,.35);
+}
+.editorInfo__value {
+  margin-top: 4px;
+  font-weight: 700;
+}
+.editorInfo__hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.editorOverride {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(122,162,255,.2);
+  background: rgba(29,42,68,.22);
+}
+.editorOverride__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.editorSourceBadge {
+  font-size: 11px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(122,162,255,.35);
+  color: #d5e4ff;
+  background: rgba(18,26,39,.5);
+}
+
 .editorSectionTitle {
   margin-top: 14px;
   padding-top: 10px;

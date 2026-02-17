@@ -51,10 +51,9 @@ function defaultSearchConfig() {
   return {
     exams: [],
     topics: [],
-    topicConfidenceMin: 1,
-    answerConfidenceMin: 1,
-    onlyRecommendChange: false,
-    onlyNeedsMaintenance: false,
+    maintenanceLevels: [],
+    onlyManualEdited: false,
+    onlyManualOverride: false,
     imageFilter: "all",
     query: "",
     inAnswers: false,
@@ -65,10 +64,9 @@ function buildSearchConfigFromUi() {
   return {
     exams: selectedExamsFromList(),
     topics: selectedTopicsFromList(),
-    topicConfidenceMin: clampCutoff($("topicConfidenceMinSearch")?.value ?? 1),
-    answerConfidenceMin: clampCutoff($("answerConfidenceMinSearch")?.value ?? 1),
-    onlyRecommendChange: !!$("onlyRecommendChangeSearch")?.checked,
-    onlyNeedsMaintenance: !!$("onlyNeedsMaintenanceSearch")?.checked,
+    maintenanceLevels: Array.from(document.querySelectorAll('input[data-maintenance-level]:checked')).map((x) => x.dataset.maintenanceLevel),
+    onlyManualEdited: !!$("onlyManualEditedSearch")?.checked,
+    onlyManualOverride: !!$("onlyManualOverrideSearch")?.checked,
     imageFilter: $("imageFilterSearch").value,
     query: $("searchText").value,
     inAnswers: $("searchInAnswers").checked,
@@ -80,11 +78,11 @@ function applySearchConfigToUi(config) {
   $("imageFilterSearch").value = cfg.imageFilter || "all";
   $("searchText").value = cfg.query || "";
   $("searchInAnswers").checked = !!cfg.inAnswers;
-  syncConfidenceControl("topic", Number(cfg.topicConfidenceMin ?? 1));
-  syncConfidenceControl("answer", Number(cfg.answerConfidenceMin ?? 1));
-  $("onlyRecommendChangeSearch").checked = !!cfg.onlyRecommendChange;
-  $("onlyNeedsMaintenanceSearch").checked = !!cfg.onlyNeedsMaintenance;
-  updateSliderLabels();
+  document.querySelectorAll('input[data-maintenance-level]').forEach((cb) => {
+    cb.checked = (cfg.maintenanceLevels || []).includes(cb.dataset.maintenanceLevel);
+  });
+  $("onlyManualEditedSearch").checked = !!cfg.onlyManualEdited;
+  $("onlyManualOverrideSearch").checked = !!cfg.onlyManualOverride;
 
   const selectedExams = new Set(cfg.exams || []);
   const examList = $("examListSearch");
@@ -113,10 +111,9 @@ function computeSearchSubset(config) {
   qs = filterByExams(qs, config.exams);
   qs = filterByTopics(qs, config.topics);
   qs = filterByQuality(qs, {
-    topicConfidenceMin: config.topicConfidenceMin,
-    answerConfidenceMin: config.answerConfidenceMin,
-    onlyRecommendChange: config.onlyRecommendChange,
-    onlyNeedsMaintenance: config.onlyNeedsMaintenance,
+    maintenanceLevels: config.maintenanceLevels,
+    onlyManualEdited: config.onlyManualEdited,
+    onlyManualOverride: config.onlyManualOverride,
   });
   qs = filterByImageMode(qs, config.imageFilter);
   return searchQuestions(qs, { query: config.query, inAnswers: config.inAnswers });
@@ -126,41 +123,15 @@ function resetSearchConfig() {
   $("imageFilterSearch").value = "all";
   $("searchText").value = "";
   $("searchInAnswers").checked = false;
-  syncConfidenceControl("topic", 1);
-  syncConfidenceControl("answer", 1);
-  $("onlyRecommendChangeSearch").checked = false;
-  $("onlyNeedsMaintenanceSearch").checked = false;
-  updateSliderLabels();
+  document.querySelectorAll('input[data-maintenance-level]').forEach((cb) => {
+    cb.checked = false;
+  });
+  $("onlyManualEditedSearch").checked = false;
+  $("onlyManualOverrideSearch").checked = false;
   $("pageSize").value = "50";
   $("pageNumber").value = "1";
   $("bulkSearchText").value = "";
   $("bulkReplaceText").value = "";
-}
-
-function clampCutoff(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return 1;
-  return Math.max(0, Math.min(1, n));
-}
-
-function syncConfidenceControl(kind, rawValue, source = "range") {
-  const value = clampCutoff(rawValue);
-  const isTopic = kind === "topic";
-  const rangeEl = $(isTopic ? "topicConfidenceMinSearch" : "answerConfidenceMinSearch");
-  const inputEl = $(isTopic ? "topicConfidenceMinInput" : "answerConfidenceMinInput");
-  const labelEl = $(isTopic ? "topicConfidenceMinValue" : "answerConfidenceMinValue");
-  if (!rangeEl || !inputEl || !labelEl) return value;
-
-  const fixed = value.toFixed(2);
-  if (source !== "range") rangeEl.value = String(value);
-  if (source !== "input") inputEl.value = fixed;
-  labelEl.textContent = fixed;
-  return value;
-}
-
-function updateSliderLabels() {
-  syncConfidenceControl("topic", $("topicConfidenceMinSearch")?.value ?? 1, "range");
-  syncConfidenceControl("answer", $("answerConfidenceMinSearch")?.value ?? 1, "range");
 }
 
 function baseFilenameFromUrl(url) {
@@ -357,6 +328,44 @@ function getFolderNameFromEntry(file) {
   const rel = String(file?.webkitRelativePath || "");
   const seg = rel.split("/").filter(Boolean);
   return seg.length > 1 ? seg[0] : "Ordner";
+}
+
+function scoreExportCandidate(name = "") {
+  const lower = String(name || "").toLowerCase();
+  if (!lower.endsWith(".json")) return -1;
+  if (lower === "export_aiannotated.json") return 300;
+  if (lower.startsWith("export") && lower.includes("aiannotated")) return 250;
+  if (lower.includes("aiannotated")) return 200;
+  if (lower === "export.json") return 100;
+  return -1;
+}
+
+function pickPreferredExportJsonFile(files = []) {
+  let best = null;
+  let bestScore = -1;
+
+  for (const file of files) {
+    const score = scoreExportCandidate(file?.name || "");
+    if (score > bestScore) {
+      best = file;
+      bestScore = score;
+    }
+  }
+
+  return best;
+}
+
+async function pickPreferredExportHandle(directoryHandle) {
+  const candidates = [];
+  for await (const [name, handle] of directoryHandle.entries()) {
+    if (handle?.kind !== "file") continue;
+    const score = scoreExportCandidate(name);
+    if (score < 0) continue;
+    candidates.push({ name, handle, score });
+  }
+
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0] || null;
 }
 
 function normalizeTopicToken(value) {
@@ -668,7 +677,10 @@ async function loadFromResolvedFiles({ exportJsonFile, zipFile, topicTreeFile = 
   if (fileHint) {
     const mode = handles ? "(Live)" : "";
     const zipHint = zipFile ? ` + ${zipFile.name}` : "";
-    fileHint.textContent = `Geladen ${mode} aus Ordner „${folderName}“: ${exportJsonFile.name}${zipHint}`.trim();
+    const annotatedHint = /aiannotated/i.test(exportJsonFile?.name || "")
+      ? " (AI-annotierte Datei)"
+      : " (Fallback: nicht annotiert)";
+    fileHint.textContent = `Geladen ${mode} aus Ordner „${folderName}“: ${exportJsonFile.name}${annotatedHint}${zipHint}`.trim();
   }
 }
 
@@ -678,9 +690,9 @@ async function loadDatasetFromDirectoryFiles(directoryFiles) {
     return;
   }
 
-  const exportJson = directoryFiles.find((file) => file.name.toLowerCase() === "export.json");
+  const exportJson = pickPreferredExportJsonFile(directoryFiles);
   if (!exportJson) {
-    alert("Im gewählten Ordner wurde keine export.json gefunden.");
+    alert("Im gewählten Ordner wurde weder eine AI-annotierte Export-Datei noch eine export.json gefunden.");
     return;
   }
 
@@ -690,7 +702,11 @@ async function loadDatasetFromDirectoryFiles(directoryFiles) {
   try {
     const folderName = getFolderNameFromEntry(exportJson);
     await loadFromResolvedFiles({ exportJsonFile: exportJson, zipFile, topicTreeFile, folderName });
-    toast("Ordner geladen.");
+    if (/aiannotated/i.test(exportJson.name || "")) {
+      toast("Ordner geladen (AI-annotierte Datei erkannt).");
+    } else {
+      toast("Ordner geladen (Fallback auf unannotierte export.json).");
+    }
   } catch (e) {
     alert("Fehler beim Laden des Ordners: " + e);
   }
@@ -725,7 +741,12 @@ async function pickAndLoadDirectoryLive() {
       toast("Ordner ohne Schreibfreigabe geöffnet. Speichern erfolgt ggf. per Download.");
     }
 
-    const exportJsonHandle = await directoryHandle.getFileHandle("export.json");
+    const preferredExport = await pickPreferredExportHandle(directoryHandle);
+    if (!preferredExport) {
+      throw new Error("Keine geeignete Export-JSON gefunden (weder AI-annotiert noch export.json).");
+    }
+
+    const exportJsonHandle = preferredExport.handle;
     const exportJsonFile = await exportJsonHandle.getFile();
 
     let zipHandle = null;
@@ -748,7 +769,11 @@ async function pickAndLoadDirectoryLive() {
       handles: { directoryHandle, exportJsonHandle, zipHandle },
     });
 
-    toast("Ordner mit Schreibzugriff geladen (Live-Speichern aktiv).");
+    if (/aiannotated/i.test(exportJsonFile.name || "")) {
+      toast("Ordner mit Schreibzugriff geladen (AI-annotierte Datei, Live-Speichern aktiv).");
+    } else {
+      toast("Ordner mit Schreibzugriff geladen (Fallback auf export.json, Live-Speichern aktiv).");
+    }
   } catch (e) {
     if (e?.name === "AbortError") {
       toast("Ordnerauswahl abgebrochen.");
@@ -761,7 +786,6 @@ async function pickAndLoadDirectoryLive() {
 }
 
 export function wireUiEvents() {
-  updateSliderLabels();
   const folderInput = $("datasetFolderInput");
   const pickFolderBtn = $("pickFolderBtn");
 
@@ -780,7 +804,7 @@ export function wireUiEvents() {
 
   const updateSelectedFileHint = () => {
     const files = Array.from(folderInput.files || []);
-    const exportJson = files.find((file) => file.name.toLowerCase() === "export.json");
+    const exportJson = pickPreferredExportJsonFile(files);
     const zipFile = files.find((file) => file.name.toLowerCase() === "images.zip") || null;
     const fileHint = $("loadedFileHint");
     if (!fileHint) return;
@@ -792,12 +816,15 @@ export function wireUiEvents() {
 
     const folderName = getFolderNameFromEntry(files[0]);
     if (!exportJson) {
-      fileHint.textContent = `Ausgewählter Ordner „${folderName}“ enthält keine export.json.`;
+      fileHint.textContent = `Ausgewählter Ordner „${folderName}“ enthält keine AI-annotierte Export-Datei und keine export.json.`;
       return;
     }
 
+    const annotatedHint = /aiannotated/i.test(exportJson.name || "")
+      ? " (AI-annotiert)"
+      : " (Fallback export.json)";
     const zipHint = zipFile ? ` + ${zipFile.name}` : "";
-    fileHint.textContent = `Ausgewählt: Ordner „${folderName}“ mit ${exportJson.name}${zipHint}`;
+    fileHint.textContent = `Ausgewählt: Ordner „${folderName}“ mit ${exportJson.name}${annotatedHint}${zipHint}`;
   };
 
   folderInput.addEventListener("change", updateSelectedFileHint);
@@ -857,21 +884,20 @@ export function wireUiEvents() {
   });
   ["pageSize", "pageNumber"].forEach((id) => $(id).addEventListener("change", async () => await renderAll()));
 
-  ["imageFilterSearch", "searchText", "searchInAnswers", "topicConfidenceMinSearch", "answerConfidenceMinSearch", "topicConfidenceMinInput", "answerConfidenceMinInput", "onlyRecommendChangeSearch", "onlyNeedsMaintenanceSearch"].forEach((id) => {
+  ["imageFilterSearch", "searchText", "searchInAnswers", "onlyManualEditedSearch", "onlyManualOverrideSearch"].forEach((id) => {
     const el = $(id);
     el.addEventListener(el.tagName === "INPUT" ? "input" : "change", async () => {
-      if (id === "topicConfidenceMinSearch") {
-        syncConfidenceControl("topic", el.value, "range");
-      } else if (id === "answerConfidenceMinSearch") {
-        syncConfidenceControl("answer", el.value, "range");
-      } else if (id === "topicConfidenceMinInput") {
-        syncConfidenceControl("topic", el.value, "input");
-      } else if (id === "answerConfidenceMinInput") {
-        syncConfidenceControl("answer", el.value, "input");
-      } else {
-        updateSliderLabels();
+      if (state.view === "search") {
+        const cfg = buildSearchConfigFromUi();
+        state.searchConfig = cfg;
+        state.searchOrder = computeSearchSubset(cfg).map((q) => q.id);
       }
+      await renderAll();
+    });
+  });
 
+  document.querySelectorAll('input[data-maintenance-level]').forEach((cb) => {
+    cb.addEventListener("change", async () => {
       if (state.view === "search") {
         const cfg = buildSearchConfigFromUi();
         state.searchConfig = cfg;

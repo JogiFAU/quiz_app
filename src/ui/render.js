@@ -478,6 +478,7 @@ export async function renderMain() {
     h.className = "qhead";
 
     h.innerHTML = `<div class="qhead__id"><strong>ID:</strong> ${q.id}</div>`;
+    h.innerHTML += `<div class="qhead__id"><strong>Ampel:</strong> ${q.maintenanceTrafficLabel || "gut"}</div>`;
     if (q.manualEdited) {
       h.innerHTML += `<div class="qhead__id"><strong>Tag:</strong> manualEdited</div>`;
     }
@@ -487,7 +488,7 @@ export async function renderMain() {
       q.manualEdited = true;
     };
 
-    const addField = (label, value, onChange, type = "text") => {
+    const addField = (label, value, onChange, type = "text", options = {}) => {
       const wrap = document.createElement("label");
       wrap.className = "editorField";
       const ttl = document.createElement("div");
@@ -497,6 +498,7 @@ export async function renderMain() {
       const inp = document.createElement(type === "textarea" ? "textarea" : "input");
       if (type !== "textarea") inp.type = "text";
       inp.value = value || "";
+      if (options.placeholder) inp.placeholder = options.placeholder;
       inp.addEventListener("input", () => {
         onChange(inp.value, inp);
         markEdited();
@@ -509,6 +511,103 @@ export async function renderMain() {
       return { wrap, input: inp };
     };
 
+    const addReadonlyInfo = (label, value, hint = "") => {
+      const wrap = document.createElement("div");
+      wrap.className = "editorInfo";
+      const ttl = document.createElement("div");
+      ttl.className = "small";
+      ttl.textContent = label;
+      const body = document.createElement("div");
+      body.className = "editorInfo__value";
+      body.textContent = value || "—";
+      wrap.appendChild(ttl);
+      wrap.appendChild(body);
+      if (hint) {
+        const hintEl = document.createElement("div");
+        hintEl.className = "editorInfo__hint";
+        hintEl.textContent = hint;
+        wrap.appendChild(hintEl);
+      }
+      card.appendChild(wrap);
+      return wrap;
+    };
+
+    const addReadonlyInfoWithSource = (label, value, source = "", hint = "") => {
+      const renderedSource = source ? `Quelle: ${source}` : "";
+      return addReadonlyInfo(label, value, [renderedSource, hint].filter(Boolean).join(" · "));
+    };
+
+    const addOverrideField = ({ label, value, sourceLabel, onChange, placeholder = "" }) => {
+      const group = document.createElement("div");
+      group.className = "editorOverride";
+
+      const top = document.createElement("div");
+      top.className = "editorOverride__top";
+
+      const title = document.createElement("div");
+      title.className = "small";
+      title.textContent = label;
+
+      const source = document.createElement("span");
+      source.className = "editorSourceBadge";
+      source.textContent = sourceLabel;
+
+      top.appendChild(title);
+      top.appendChild(source);
+      group.appendChild(top);
+
+      const inp = document.createElement("textarea");
+      inp.value = value || "";
+      inp.placeholder = placeholder;
+      inp.addEventListener("input", () => {
+        onChange(inp.value, inp);
+        markEdited();
+        state.dirty = true;
+      });
+      group.appendChild(inp);
+
+      card.appendChild(group);
+      return inp;
+    };
+
+    const addOverrideSelect = ({ label, value, sourceLabel, onChange, options = [] }) => {
+      const group = document.createElement("div");
+      group.className = "editorOverride";
+
+      const top = document.createElement("div");
+      top.className = "editorOverride__top";
+
+      const title = document.createElement("div");
+      title.className = "small";
+      title.textContent = label;
+
+      const source = document.createElement("span");
+      source.className = "editorSourceBadge";
+      source.textContent = sourceLabel;
+
+      top.appendChild(title);
+      top.appendChild(source);
+      group.appendChild(top);
+
+      const select = document.createElement("select");
+      options.forEach((opt) => {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label;
+        select.appendChild(option);
+      });
+      select.value = value || "";
+      select.addEventListener("change", () => {
+        onChange(select.value, select);
+        markEdited();
+        state.dirty = true;
+      });
+      group.appendChild(select);
+
+      card.appendChild(group);
+      return select;
+    };
+
     const addSectionTitle = (title) => {
       const sectionTitle = document.createElement("div");
       sectionTitle.className = "editorSectionTitle";
@@ -518,10 +617,19 @@ export async function renderMain() {
 
     addSectionTitle("Metadaten");
     addField("Klausur", q.examName, (v) => q.examName = v);
+    addReadonlyInfo(
+      "Aktuelle Themenzuordnung",
+      [q.superTopic, q.subTopic].filter(Boolean).join(" > "),
+      "Kann unten über Über-/Unterthema angepasst werden.",
+    );
+    addReadonlyInfoWithSource("Aktuelle Topic-Erklärung", q.currentTopicReason, q.currentTopicReasonSource);
+    addReadonlyInfoWithSource("Aktueller Lösungshinweis", q.currentAnswerReason, q.currentAnswerReasonSource);
+    addReadonlyInfoWithSource("Aktuelle Maintenance-Einstufung", q.currentMaintenanceAssessment, q.currentMaintenanceSource);
 
     const superTopicField = addField("Überthema", q.superTopic, (v) => {
       q.superTopic = v;
       q.manualTopicEdited = true;
+      q.hasManualTopicOverride = true;
       q.topic = [q.superTopic, q.subTopic].filter(Boolean).join(" > ");
       updateTopicHints(q, superTopicInput, subTopicInput);
     }, "text");
@@ -530,18 +638,52 @@ export async function renderMain() {
     const subTopicField = addField("Unterthema", q.subTopic, (v) => {
       q.subTopic = v;
       q.manualTopicEdited = true;
+      q.hasManualTopicOverride = true;
       q.topic = [q.superTopic, q.subTopic].filter(Boolean).join(" > ");
     }, "text");
     const subTopicInput = subTopicField.input;
 
     bindTopicAutocomplete(q, superTopicInput, superTopicField.wrap, subTopicInput, subTopicField.wrap);
 
-    addField("Finale Topic-Erklärung", q.topicReason, (v) => q.topicReason = v, "textarea");
-    addField("Finale Maintenance-Einschätzung", q.finalMaintenanceAssessment, (v) => {
-      q.finalMaintenanceAssessment = v;
-      const normalized = String(v || "").trim().toLocaleLowerCase("de");
-      q.needsReview = /wartung|kritisch|problem|fehler/.test(normalized);
-    }, "textarea");
+    addSectionTitle("Finale Bewertung (bearbeitbar)");
+    addOverrideField({
+      label: "Finale Topic-Erklärung",
+      value: q.topicReason,
+      sourceLabel: q.hasManualTopicOverride ? "Quelle: manuell" : "Quelle: AI",
+      onChange: (v) => {
+        q.topicReason = v;
+        q.hasManualTopicOverride = true;
+      },
+      placeholder: "Begründung zur finalen Topic-Zuordnung",
+    });
+    const maintenanceOptions = [
+      { value: "", label: "(kein manueller Override)" },
+      { value: "gut", label: "gut" },
+      { value: "Wartung empfohlen", label: "Wartung empfohlen" },
+      { value: "kritisch", label: "kritisch" },
+    ];
+    addOverrideSelect({
+      label: "Finale Maintenance-Einschätzung",
+      value: q.finalMaintenanceAssessment,
+      sourceLabel: q.hasManualMaintenanceOverride ? "Quelle: manuell" : "Quelle: automatisch",
+      onChange: (v) => {
+        q.finalMaintenanceAssessment = v;
+        q.hasManualMaintenanceOverride = true;
+        const normalized = String(v || "").trim().toLocaleLowerCase("de");
+        q.needsReview = /wartung|kritisch|problem|fehler/.test(normalized);
+      },
+      options: maintenanceOptions,
+    });
+    addOverrideField({
+      label: "Maintenance-Erklärung (optional)",
+      value: q.maintenanceExplanation,
+      sourceLabel: q.hasManualMaintenanceOverride ? "Quelle: manuell" : "Quelle: automatisch",
+      onChange: (v) => {
+        q.maintenanceExplanation = v;
+        q.hasManualMaintenanceOverride = true;
+      },
+      placeholder: "Optional: kurze Begründung zur manuellen Maintenance-Einstufung",
+    });
 
     addSectionTitle("Frageninhalt");
     addField("Frage", q.text, (v) => q.text = v, "textarea");
@@ -602,7 +744,16 @@ export async function renderMain() {
 
     card.appendChild(ansWrap);
 
-    addField("Finaler Lösungshinweis", q.answerReason, (v) => q.answerReason = v, "textarea");
+    addOverrideField({
+      label: "Finaler Lösungshinweis",
+      value: q.answerReason,
+      sourceLabel: q.hasManualAnswerOverride ? "Quelle: manuell" : "Quelle: AI",
+      onChange: (v) => {
+        q.answerReason = v;
+        q.hasManualAnswerOverride = true;
+      },
+      placeholder: "Kurzer finaler Lösungshinweis für diese Frage",
+    });
 
     card.appendChild(addAnswerBtn);
     card.appendChild(createImageEditor(q, markEdited));
