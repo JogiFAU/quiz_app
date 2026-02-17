@@ -1,9 +1,9 @@
 import { normSpace } from "../utils.js";
 import { state } from "../state.js";
 import {
+  AI_DISPLAY_RULES,
   MAINTENANCE_TRAFFIC_RULES,
   evaluateMaintenanceTrafficRules,
-  resolveAiDisplayText,
   resolveMaintenanceDisplayText,
   pickFirstNonEmptyString,
 } from "../rules/questionPresentationRules.js";
@@ -127,9 +127,9 @@ function extractAiInfo(q) {
   const activePass = passB || passA || null;
 
   return {
-    topicReason: normSpace(resolveAiDisplayText(q, "topicReason") || topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
+    topicReason: normSpace(pickFirstNonEmptyString(q, AI_DISPLAY_RULES.topicReasonPaths) || topicFinal?.reasonShort || topicInitial?.reasonShort || ""),
     topicSource: String(topicFinal?.source || ""),
-    answerReason: normSpace(resolveAiDisplayText(q, "solutionHint") || activePass?.reasonShort || ""),
+    answerReason: normSpace(pickFirstNonEmptyString(q, AI_DISPLAY_RULES.solutionHintPaths) || activePass?.reasonShort || ""),
     answerSource: passB ? "passB" : (passA ? "passA" : ""),
   };
 }
@@ -147,11 +147,16 @@ function extractManualOverrides(q) {
     "ExplanationTopic_manualOverride",
     "annotations.ExplanationTopic_manualOverride",
   ]) || "";
+  const maintenanceExplanationOverride = pickFirstNonEmptyString(q, [
+    "MaintananceExplanation_manualOverride",
+    "annotations.MaintananceExplanation_manualOverride",
+  ]) || "";
 
   return {
     maintenanceOverride,
     answerOverride,
     topicOverride,
+    maintenanceExplanationOverride,
   };
 }
 
@@ -168,7 +173,12 @@ function normalizeQuestion(q, fileIndex) {
   const topicConfidence = extractTopicConfidence(q);
   const { answerConfidence, recommendChange, needsMaintenance } = extractAnswerConfidenceAndFlags(q);
   const { topicReason, topicSource, answerReason, answerSource } = extractAiInfo(q);
-  const { maintenanceOverride, answerOverride, topicOverride } = extractManualOverrides(q);
+  const {
+    maintenanceOverride,
+    answerOverride,
+    topicOverride,
+    maintenanceExplanationOverride,
+  } = extractManualOverrides(q);
   const needsReview = !!(maintenanceKey ? q[maintenanceKey] : false);
 
   const maintenanceTraffic = evaluateMaintenanceTrafficRules(
@@ -193,11 +203,18 @@ function normalizeQuestion(q, fileIndex) {
     answerConfidence,
     recommendChange,
     needsMaintenance,
-    topicReason,
+    topicReason: topicOverride,
+    currentTopicReason: topicOverride || topicReason,
+    currentTopicReasonSource: topicOverride ? "manualOverride" : (topicSource || "AI"),
     topicSource,
-    answerReason,
+    answerReason: answerOverride,
+    currentAnswerReason: answerOverride || answerReason,
+    currentAnswerReasonSource: answerOverride ? "manualOverride" : (answerSource || "AI"),
     answerSource,
-    finalMaintenanceAssessment: resolveMaintenanceDisplayText(q, needsReview || needsMaintenance),
+    finalMaintenanceAssessment: maintenanceOverride,
+    maintenanceExplanation: maintenanceExplanationOverride,
+    currentMaintenanceAssessment: maintenanceOverride || resolveMaintenanceDisplayText(q, needsReview || needsMaintenance),
+    currentMaintenanceSource: maintenanceOverride ? "manualOverride" : "automatisch",
     maintenanceTrafficLevel: maintenanceTraffic.level,
     maintenanceTrafficLabel: maintenanceTraffic.label,
     hasManualMaintenanceOverride: !!maintenanceOverride,
@@ -263,11 +280,13 @@ export function syncQuestionToSource(question) {
   raw[maintenanceKey] = !!question.needsReview;
 
   const maintenanceOverride = normSpace(question.finalMaintenanceAssessment || "");
+  const maintenanceExplanationOverride = normSpace(question.maintenanceExplanation || "");
   const answerOverride = normSpace(question.answerReason || "");
   const topicOverride = normSpace(question.topicReason || "");
 
   if (question.hasManualMaintenanceOverride) {
     setManualAnnotation(raw, "Maintanance_manualOverride", maintenanceOverride || null);
+    setManualAnnotation(raw, "MaintananceExplanation_manualOverride", maintenanceExplanationOverride || null);
   }
   if (question.hasManualAnswerOverride) {
     setManualAnnotation(raw, "ExplanationAnswer_manualOverride", answerOverride || null);

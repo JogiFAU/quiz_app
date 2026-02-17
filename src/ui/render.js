@@ -532,6 +532,11 @@ export async function renderMain() {
       return wrap;
     };
 
+    const addReadonlyInfoWithSource = (label, value, source = "", hint = "") => {
+      const renderedSource = source ? `Quelle: ${source}` : "";
+      return addReadonlyInfo(label, value, [renderedSource, hint].filter(Boolean).join(" · "));
+    };
+
     const addOverrideField = ({ label, value, sourceLabel, onChange, placeholder = "" }) => {
       const group = document.createElement("div");
       group.className = "editorOverride";
@@ -565,6 +570,44 @@ export async function renderMain() {
       return inp;
     };
 
+    const addOverrideSelect = ({ label, value, sourceLabel, onChange, options = [] }) => {
+      const group = document.createElement("div");
+      group.className = "editorOverride";
+
+      const top = document.createElement("div");
+      top.className = "editorOverride__top";
+
+      const title = document.createElement("div");
+      title.className = "small";
+      title.textContent = label;
+
+      const source = document.createElement("span");
+      source.className = "editorSourceBadge";
+      source.textContent = sourceLabel;
+
+      top.appendChild(title);
+      top.appendChild(source);
+      group.appendChild(top);
+
+      const select = document.createElement("select");
+      options.forEach((opt) => {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label;
+        select.appendChild(option);
+      });
+      select.value = value || "";
+      select.addEventListener("change", () => {
+        onChange(select.value, select);
+        markEdited();
+        state.dirty = true;
+      });
+      group.appendChild(select);
+
+      card.appendChild(group);
+      return select;
+    };
+
     const addSectionTitle = (title) => {
       const sectionTitle = document.createElement("div");
       sectionTitle.className = "editorSectionTitle";
@@ -579,6 +622,9 @@ export async function renderMain() {
       [q.superTopic, q.subTopic].filter(Boolean).join(" > "),
       "Kann unten über Über-/Unterthema angepasst werden.",
     );
+    addReadonlyInfoWithSource("Aktuelle Topic-Erklärung", q.currentTopicReason, q.currentTopicReasonSource);
+    addReadonlyInfoWithSource("Aktueller Lösungshinweis", q.currentAnswerReason, q.currentAnswerReasonSource);
+    addReadonlyInfoWithSource("Aktuelle Maintenance-Einstufung", q.currentMaintenanceAssessment, q.currentMaintenanceSource);
 
     const superTopicField = addField("Überthema", q.superTopic, (v) => {
       q.superTopic = v;
@@ -610,17 +656,33 @@ export async function renderMain() {
       },
       placeholder: "Begründung zur finalen Topic-Zuordnung",
     });
-    addOverrideField({
+    const maintenanceOptions = [
+      { value: "", label: "(kein manueller Override)" },
+      { value: "gut", label: "gut" },
+      { value: "Wartung empfohlen", label: "Wartung empfohlen" },
+      { value: "kritisch", label: "kritisch" },
+    ];
+    addOverrideSelect({
       label: "Finale Maintenance-Einschätzung",
       value: q.finalMaintenanceAssessment,
       sourceLabel: q.hasManualMaintenanceOverride ? "Quelle: manuell" : "Quelle: automatisch",
       onChange: (v) => {
-      q.finalMaintenanceAssessment = v;
-      q.hasManualMaintenanceOverride = true;
-      const normalized = String(v || "").trim().toLocaleLowerCase("de");
-      q.needsReview = /wartung|kritisch|problem|fehler/.test(normalized);
+        q.finalMaintenanceAssessment = v;
+        q.hasManualMaintenanceOverride = true;
+        const normalized = String(v || "").trim().toLocaleLowerCase("de");
+        q.needsReview = /wartung|kritisch|problem|fehler/.test(normalized);
       },
-      placeholder: "z. B. Unauffällig / Wartung empfohlen / kritisch",
+      options: maintenanceOptions,
+    });
+    addOverrideField({
+      label: "Maintenance-Erklärung (optional)",
+      value: q.maintenanceExplanation,
+      sourceLabel: q.hasManualMaintenanceOverride ? "Quelle: manuell" : "Quelle: automatisch",
+      onChange: (v) => {
+        q.maintenanceExplanation = v;
+        q.hasManualMaintenanceOverride = true;
+      },
+      placeholder: "Optional: kurze Begründung zur manuellen Maintenance-Einstufung",
     });
 
     addSectionTitle("Frageninhalt");
