@@ -146,7 +146,7 @@ function getCurrentQuestions() {
   return state.searchOrder.map((qid) => idx.get(qid)).filter(Boolean);
 }
 
-function createImageEditor(question) {
+function createImageEditor(question, onEdited = () => {}) {
   const wrap = document.createElement("div");
   wrap.className = "editorImageBlock";
 
@@ -180,6 +180,7 @@ function createImageEditor(question) {
         const removed = question.imageFiles.splice(idx, 1)[0];
         const stillUsed = state.questionsAll.some((q) => (q.imageFiles || []).includes(removed));
         if (!stillUsed) removeLocalImage(removed);
+        onEdited();
         state.dirty = true;
         renderAll();
       });
@@ -211,6 +212,7 @@ function createImageEditor(question) {
     }
 
     fileInput.value = "";
+    onEdited();
     state.dirty = true;
     renderAll();
   });
@@ -475,27 +477,15 @@ export async function renderMain() {
     const h = document.createElement("div");
     h.className = "qhead";
 
-    const formatConfidence = (value) => Number.isFinite(Number(value)) ? Number(value).toFixed(2) : "—";
-    const topicConf = formatConfidence(q.topicConfidence);
-    const answerConf = formatConfidence(q.answerConfidence);
-
     h.innerHTML = `<div class="qhead__id"><strong>ID:</strong> ${q.id}</div>`;
+    if (q.manualEdited) {
+      h.innerHTML += `<div class="qhead__id"><strong>Tag:</strong> manualEdited</div>`;
+    }
     card.appendChild(h);
 
-    const reviewWrap = document.createElement("label");
-    reviewWrap.className = "checkrow editorField";
-    const reviewToggle = document.createElement("input");
-    reviewToggle.type = "checkbox";
-    reviewToggle.checked = !!q.needsReview;
-    reviewToggle.addEventListener("change", () => {
-      q.needsReview = reviewToggle.checked;
-      state.dirty = true;
-    });
-    const reviewLabel = document.createElement("span");
-    reviewLabel.textContent = "Wartungsbedürftig";
-    reviewWrap.appendChild(reviewToggle);
-    reviewWrap.appendChild(reviewLabel);
-    card.appendChild(reviewWrap);
+    const markEdited = () => {
+      q.manualEdited = true;
+    };
 
     const addField = (label, value, onChange, type = "text") => {
       const wrap = document.createElement("label");
@@ -509,6 +499,7 @@ export async function renderMain() {
       inp.value = value || "";
       inp.addEventListener("input", () => {
         onChange(inp.value, inp);
+        markEdited();
         state.dirty = true;
       });
 
@@ -530,6 +521,7 @@ export async function renderMain() {
 
     const superTopicField = addField("Überthema", q.superTopic, (v) => {
       q.superTopic = v;
+      q.manualTopicEdited = true;
       q.topic = [q.superTopic, q.subTopic].filter(Boolean).join(" > ");
       updateTopicHints(q, superTopicInput, subTopicInput);
     }, "text");
@@ -537,21 +529,19 @@ export async function renderMain() {
 
     const subTopicField = addField("Unterthema", q.subTopic, (v) => {
       q.subTopic = v;
+      q.manualTopicEdited = true;
       q.topic = [q.superTopic, q.subTopic].filter(Boolean).join(" > ");
     }, "text");
     const subTopicInput = subTopicField.input;
 
     bindTopicAutocomplete(q, superTopicInput, superTopicField.wrap, subTopicInput, subTopicField.wrap);
 
-    const topicConfInfo = document.createElement("div");
-    topicConfInfo.className = "small editorField";
-    topicConfInfo.innerHTML = `<strong>Topic-Conf:</strong> ${topicConf} <strong>(${q.topicSource || "n/a"})</strong>`;
-    card.appendChild(topicConfInfo);
-
-    const topicReason = document.createElement("div");
-    topicReason.className = "small editorField";
-    topicReason.innerHTML = `<strong>AI-Begründung Topic:</strong> ${q.topicReason || "—"}`;
-    card.appendChild(topicReason);
+    addField("Finale Topic-Erklärung", q.topicReason, (v) => q.topicReason = v, "textarea");
+    addField("Finale Maintenance-Einschätzung", q.finalMaintenanceAssessment, (v) => {
+      q.finalMaintenanceAssessment = v;
+      const normalized = String(v || "").trim().toLocaleLowerCase("de");
+      q.needsReview = /wartung|kritisch|problem|fehler/.test(normalized);
+    }, "textarea");
 
     addSectionTitle("Frageninhalt");
     addField("Frage", q.text, (v) => q.text = v, "textarea");
@@ -570,6 +560,7 @@ export async function renderMain() {
       correct.checked = !!a.isCorrect;
       correct.addEventListener("change", () => {
         a.isCorrect = correct.checked;
+        markEdited();
         state.dirty = true;
       });
 
@@ -577,6 +568,7 @@ export async function renderMain() {
       text.value = `${letter(idx)}) ${a.text || ""}`;
       text.addEventListener("input", () => {
         a.text = text.value.replace(/^[A-Z]\)\s*/, "");
+        markEdited();
         state.dirty = true;
       });
 
@@ -586,6 +578,7 @@ export async function renderMain() {
       del.textContent = "Antwort löschen";
       del.addEventListener("click", () => {
         q.answers.splice(idx, 1);
+        markEdited();
         state.dirty = true;
         renderAll();
       });
@@ -602,24 +595,17 @@ export async function renderMain() {
     addAnswerBtn.textContent = "Antwort hinzufügen";
     addAnswerBtn.addEventListener("click", () => {
       q.answers.push({ id: `ans_${q.id}_${Date.now()}`, text: "", isCorrect: false });
+      markEdited();
       state.dirty = true;
       renderAll();
     });
 
     card.appendChild(ansWrap);
 
-    const answerConfInfo = document.createElement("div");
-    answerConfInfo.className = "small editorField";
-    answerConfInfo.innerHTML = `<strong>Antwort-Conf:</strong> ${answerConf} <strong>(${q.answerSource || "n/a"})</strong>`;
-    card.appendChild(answerConfInfo);
-
-    const answerReason = document.createElement("div");
-    answerReason.className = "small editorField";
-    answerReason.innerHTML = `<strong>AI-Begründung Antwort:</strong> ${q.answerReason || "—"}`;
-    card.appendChild(answerReason);
+    addField("Finaler Lösungshinweis", q.answerReason, (v) => q.answerReason = v, "textarea");
 
     card.appendChild(addAnswerBtn);
-    card.appendChild(createImageEditor(q));
+    card.appendChild(createImageEditor(q, markEdited));
 
     if ((q.imageFiles || []).length) {
       const imgRow = document.createElement("div");

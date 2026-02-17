@@ -621,7 +621,10 @@ async function applyBulkReplace() {
   let changed = 0;
   state.questionsAll.forEach((q) => {
     if (!ids.has(q.id)) return;
-    if (replaceAcrossQuestion(q, searchText, replaceText)) changed++;
+    if (replaceAcrossQuestion(q, searchText, replaceText)) {
+      q.manualEdited = true;
+      changed++;
+    }
   });
 
   if (!changed) {
